@@ -59,6 +59,11 @@ The server is authoritative. For example, `record_sale` returns the server `unit
 | `FUELOS_PERMISSION_DENIED` / `42501` | «هذا الإجراء متاح لـ … فقط» | name the role that can do it |
 | `FUELOS_PENDING_APPROVALS` (owner) | «هناك عمليات آجل بانتظار قرارك في هذه المناوبة» | open O7 |
 | `FUELOS_PERIOD_CLOSED` (office) | «الفترة المحاسبية مغلقة — سجّل التسوية في الفترة الحالية» | |
+| `FUELOS_PIN_INVALID` (L2) | «الرمز غير صحيح — بقيت X محاولات» (X from `attempts_left`) | clear the dots |
+| `FUELOS_PIN_LOCKED` (L2) | «تم إيقاف الدخول مؤقتاً بعد محاولات خاطئة — حاول بعد HH:MM أو اطلب من المالك رمزاً جديداً» (from `locked_until`) | |
+| `FUELOS_PIN_NOT_SET` (L2) | «لم يُحدَّد لك رمز بعد — اطلبه من صاحب المحطة» | |
+| `FUELOS_DEVICE_NOT_REGISTERED` (L2) | «هذا الجهاز غير مسجّل للمحطة — اطلب من المدير تسجيله» | show device setup (manager OTP) |
+| `FUELOS_PIN_LOGIN_UNAVAILABLE` (L2) | «تعذّر الدخول بالرمز لهذا الحساب — اتصل بالدعم» | log to Sentry |
 
 Keep the mapping in one shared place (`packages/fuelos_core/lib/errors.dart` and `apps/owner-web/lib/errors.ts`), with a fallback: «حدث خطأ غير متوقع — حاول مرة أخرى». Unknown codes go to Sentry.
 
