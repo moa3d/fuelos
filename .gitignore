@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+
+# node / next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# flutter / dart
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# figma plugin build output (dist/ is kept on purpose so it can be imported without building)
+design/figma-plugin/dist/code.src.js
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

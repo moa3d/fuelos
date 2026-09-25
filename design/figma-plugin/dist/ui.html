@@ -1,0 +1,61 @@
+<!doctype html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --p:#0F766E; --a:#10B981; --d:#071E2D; --w:#F59E0B; --x:#DC2626; --m:#475569; --b:#E2E8F0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 13px/1.6 -apple-system, "Segoe UI", Tahoma, sans-serif; color:#0F172A; background:#fff; }
+  header { background: var(--d); color:#fff; padding:18px 20px; }
+  header h1 { margin:0; font-size:16px; }
+  header p { margin:4px 0 0; color:#9FB3C1; font-size:12px; }
+  main { padding:16px 20px; }
+  .note { background:#F8FAFC; border:1px solid var(--b); border-radius:10px; padding:10px 12px; color:var(--m); font-size:12px; }
+  .warn { background:#FFF7E6; border-color:#F59E0B55; color:#B45309; }
+  button { width:100%; height:44px; border:0; border-radius:10px; background:var(--a); color:#052E2B; font-weight:700; font-size:15px; cursor:pointer; margin-top:12px; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.secondary { background:#fff; color:#0F172A; border:1px solid var(--b); }
+  #log { margin-top:12px; height:230px; overflow:auto; border:1px solid var(--b); border-radius:10px; padding:8px 10px; font-size:12px; background:#fff; }
+  #log div { padding:2px 0; border-bottom:1px dashed #F1F5F9; }
+  .error { color: var(--x); font-weight:600; }
+  .warnl { color: #B45309; }
+  .ok { color: #047857; font-weight:700; }
+  label { display:flex; gap:8px; align-items:flex-start; margin-top:10px; font-size:12px; color:var(--m); }
+</style>
+</head>
+<body>
+<header>
+  <h1>FuelOS — بناء التصميم</h1>
+  <p>يبني التحليل ونظام التصميم والشاشات داخل هذا الملف</p>
+</header>
+<main>
+  <div class="note" id="file">…</div>
+  <div class="note warn" id="warn" style="margin-top:8px;display:none"></div>
+  <label><input type="checkbox" id="ok" checked> أفهم أن التشغيل يعيد بناء الصفحات التي أنشأتها الإضافة (01 و02) ويستبدل محتواها.</label>
+  <button id="go">ابنِ التصميم</button>
+  <div id="log"></div>
+  <button class="secondary" id="close">إغلاق</button>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  function add(msg, level) {
+    const d = document.createElement('div');
+    d.textContent = msg;
+    d.className = level === 'error' ? 'error' : level === 'warn' ? 'warnl' : level === 'ok' ? 'ok' : '';
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.onmessage = (e) => {
+    const m = e.data.pluginMessage; if (!m) return;
+    if (m.type === 'init') {
+      $('file').textContent = 'الملف الحالي: ' + m.fileName;
+      if (!/fuel/i.test(m.fileName)) { $('warn').style.display = 'block'; $('warn').textContent = 'تنبيه: اسم الملف لا يحتوي FuelStation — تأكد أنك في الملف الصحيح.'; }
+    }
+    if (m.type === 'log') add(m.msg, m.level);
+    if (m.type === 'done') { $('go').disabled = false; $('go').textContent = 'إعادة البناء'; if (m.errors && m.errors.length) add('الأخطاء: ' + m.errors.length + ' — صوّر هذا السجل وأرسله', 'error'); }
+  };
+  $('go').onclick = () => { if (!$('ok').checked) return; $('go').disabled = true; logEl.innerHTML = ''; add('جارٍ البناء… قد يستغرق دقيقة'); parent.postMessage({ pluginMessage: { type: 'build' } }, '*'); };
+  $('close').onclick = () => parent.postMessage({ pluginMessage: { type: 'close' } }, '*');
+</script>
+</body>
+</html>
