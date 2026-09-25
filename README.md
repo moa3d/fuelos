@@ -29,7 +29,6 @@
   ```
   ثم تحقّق بالأمر `claude --version`. يحتاج Claude Code إلى اشتراك Pro أو Max أو Team.
 - **GitHub CLI**: الأمر `winget install GitHub.cli` ثم `gh auth login`.
-- **Flutter SDK**: لاحقاً، عند بدء تطبيق العامل. الرابط <https://docs.flutter.dev/get-started/install/windows>.
 - **PostgreSQL**: اختياري، لتشغيل الاختبارات محلياً. ثبّته من <https://www.postgresql.org/download/windows/>، وستحصل معه على `psql`.
 
 ### 2) جهّز المستودع على GitHub
@@ -86,7 +85,7 @@ claude
 ### 5) أول طلبات مقترحة لـ Claude Code
 
 1. «اقرأ CLAUDE.md و docs/data-model.md، ثم أنشئ Edge Function لدخول العامل بـ PIN على جهاز مسجّل (L2)».
-2. «أنشئ تطبيق Flutter في apps/worker_app مع حزمة packages/fuelos_ui من design/tokens.json، وابدأ بشاشة S1 مطابقة لـ design/screens/S1.png».
+2. «اقرأ docs/briefs/01-worker-pwa.md ونفّذه»: تطبيق العامل PWA بـ Next.js في apps/worker، يعمل من المتصفح ودون اتصال.
 3. «أضف طبقة outbox دون اتصال حسب مهارة fuelos-offline-sync، واربط S2 بـ record_sale».
 4. «أنشئ apps/owner-web بـ Next.js (RTL وخط Cairo)، وابدأ بـ L1 ثم O1 ثم O7».
 
@@ -102,7 +101,7 @@ claude
 PGHOST=localhost PGUSER=postgres ./supabase/tests/local/run_local.sh
 ```
 
-يبني هذا الأمر قاعدة مؤقتة، ويطبّق كل الملفات والبيانات التجريبية، ثم يشغّل الفحوص الـ 88.
+يبني هذا الأمر قاعدة مؤقتة، ويطبّق كل الملفات والبيانات التجريبية، ثم يشغّل كل الفحوص (107).
 
 ## الحسابات التجريبية (مشروع التطوير فقط)
 

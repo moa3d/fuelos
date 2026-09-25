@@ -62,7 +62,7 @@ The full chart is in `create_station_defaults()`. Add a new account only with a 
 - A frozen or suspended company → `FUELOS_COMPANY_FROZEN` / `FUELOS_COMPANY_SUSPENDED`.
 
 ## Money in code
-- The DB uses `numeric(16,2)` for money and `numeric(14,3)` for liters. In Dart/TS, never use floating point for money: use integer minor units or a decimal library.
+- The DB uses `numeric(16,2)` for money and `numeric(14,3)` for liters. In TypeScript, never use floating point for money: use integer minor units or a decimal library.
 - Display with Latin digits 0-9 and a thousands separator (`1,250`), then « ل.س ». Rounding happens in SQL (`round(x, 2)`).
 
 ## When you add a financial feature

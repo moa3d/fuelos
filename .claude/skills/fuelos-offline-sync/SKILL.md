@@ -1,6 +1,6 @@
 ---
 name: fuelos-offline-sync
-description: Use when building the FuelOS worker app (Flutter) or any client that writes shifts or sales, or when handling network errors, the sync indicator, the offline outbox, retries, or mapping FUELOS_* error codes to Arabic messages.
+description: Use when building the FuelOS worker app (Next.js PWA) or any client that writes shifts or sales, or when handling network errors, the sync indicator, the offline outbox, retries, or mapping FUELOS_* error codes to Arabic messages.
 ---
 
 # FuelOS offline-first sync (worker app)
@@ -8,7 +8,9 @@ description: Use when building the FuelOS worker app (Flutter) or any client tha
 The spec says stations have no new hardware and the internet drops. The worker app **must keep working offline** and must never lose or duplicate a sale.
 
 ## Model
-- **Local DB**: SQLite, using `drift`. It stores reference data (pumps, nozzles, prices, companies for lookup) and the **outbox**.
+- **Local DB**: IndexedDB via **Dexie**. It stores reference data (pumps, nozzles, prices, companies for lookup) and the **outbox**. Call `navigator.storage.persist()` on start so the browser does not evict it.
+- **App shell**: a service worker via **Serwist** caches the shell so the app opens offline.
+- **When to sync**: on the `online` event, on window focus, and every 30 s while the app is open. iOS has no Background Sync, so sync only while the app is open.
 - **Outbox row** fields:
   - `id` (the client UUID of the operation)
   - `rpc` (`open_shift` | `record_sale` | `submit_shift`)
@@ -60,21 +62,22 @@ The server is authoritative. For example, `record_sale` returns the server `unit
 | `FUELOS_PENDING_APPROVALS` (owner) | «هناك عمليات آجل بانتظار قرارك في هذه المناوبة» | open O7 |
 | `FUELOS_PERIOD_CLOSED` (office) | «الفترة المحاسبية مغلقة — سجّل التسوية في الفترة الحالية» | |
 | `FUELOS_PIN_INVALID` (L2) | «الرمز غير صحيح — بقيت X محاولات» (X from `attempts_left`) | clear the dots |
-| `FUELOS_PIN_LOCKED` (L2) | «تم إيقاف الدخول مؤقتاً بعد محاولات خاطئة — حاول بعد HH:MM أو اطلب من المالك رمزاً جديداً» (from `locked_until`) | |
-| `FUELOS_PIN_NOT_SET` (L2) | «لم يُحدَّد لك رمز بعد — اطلبه من صاحب المحطة» | |
-| `FUELOS_DEVICE_NOT_REGISTERED` (L2) | «هذا الجهاز غير مسجّل للمحطة — اطلب من المدير تسجيله» | show device setup (manager OTP) |
-| `FUELOS_PIN_LOGIN_UNAVAILABLE` (L2) | «تعذّر الدخول بالرمز لهذا الحساب — اتصل بالدعم» | log to Sentry |
+| `FUELOS_PIN_LOCKED` (L2) | «تم إيقاف الدخول مؤقتاً حتى HH:MM» (from `locked_until`) | |
+| `FUELOS_PIN_NOT_SET` (L2) | «لم يُحدَّد لك رمز بعد — اطلب من صاحب المحطة» | |
+| `FUELOS_DEVICE_NOT_REGISTERED` (L2) | «هذا الجهاز غير مسجّل لمحطة — اطلب من المدير تسجيله» | show device setup |
+| `FUELOS_PIN_LOGIN_UNAVAILABLE` / `FUELOS_INTERNAL` (L2) | «تعذّر الدخول الآن — حاول بعد قليل» | log to Sentry |
+| network error (L2) | «لا يوجد اتصال — الدخول يحتاج إنترنت أول مرة» | retry |
 
-Keep the mapping in one shared place (`packages/fuelos_core/lib/errors.dart` and `apps/owner-web/lib/errors.ts`), with a fallback: «حدث خطأ غير متوقع — حاول مرة أخرى». Unknown codes go to Sentry.
+Keep the mapping in one shared place (`packages/core/src/errors.ts`, used by every app), with a fallback: «حدث خطأ غير متوقع — حاول مرة أخرى». Unknown codes go to Sentry.
 
 ## Supabase client calls
-```dart
-final res = await supabase.rpc('record_sale', params: {
-  'p_sale_id': op.id, 'p_shift': shiftId, 'p_nozzle': nozzleId,
-  'p_liters': liters, 'p_unit_price': price, 'p_method': 'card',
-  'p_device': deviceId, 'p_client_created_at': op.createdAt.toIso8601String(),
+```ts
+const { data, error } = await supabase.rpc('record_sale', {
+  p_sale_id: op.id, p_shift: shiftId, p_nozzle: nozzleId,
+  p_liters: liters, p_unit_price: price, p_method: 'card',
+  p_device: deviceId, p_client_created_at: op.createdAt,
 });
-// PostgrestException: e.code == 'P0001' | '42501', e.message == 'FUELOS_…', e.details == detail
+// error: { code: 'P0001' | '42501', message: 'FUELOS_…', details: detail }
 ```
 
 ## Don'ts

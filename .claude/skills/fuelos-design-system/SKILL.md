@@ -1,6 +1,6 @@
 ---
 name: fuelos-design-system
-description: Use when building or reviewing any FuelOS UI (Next.js owner/admin web, Flutter worker or customer app) — colors, typography, spacing, RTL layout, the 14 components, frame sizes, and where the reference screenshots and Figma source live.
+description: Use when building or reviewing any FuelOS UI (Next.js owner/admin web, worker PWA, customer app) — colors, typography, spacing, RTL layout, the 14 components, frame sizes, and where the reference screenshots and Figma source live.
 ---
 
 # FuelOS design system
@@ -10,7 +10,7 @@ The Figma file is **FuelStation UI/UX** (`nPAPGxuO5qZn8uvWBjLwXA`). It is genera
 - Reference screenshots, one per frame: `design/screens/<CODE>.png`, for example `O1.png` or `S2.png`. **Open the screenshot of the screen you are building before writing UI code**, and match its hierarchy and copy.
 
 ## Foundations
-- **Language/direction:** Arabic only, **RTL** everywhere (`<html dir="rtl" lang="ar">`; Flutter `Directionality(textDirection: TextDirection.rtl)` + `Locale('ar')`).
+- **Language/direction:** Arabic only, **RTL** everywhere (`<html dir="rtl" lang="ar">`).
 - **Font:** Cairo (Google Fonts), weights 400 / 600 / 700. **Digits are Latin 0-9**, not Arabic-Indic, and use a thousands separator: `1,250`.
 - **Currency:** «ل.س» after the number (`5,000 ل.س`). It is a placeholder, so read it from `stations.currency_code`.
 - **Theme:** light UI with a **dark sidebar** (`brand/dark`) for the owner and admin. There is no dark mode in v1.
@@ -62,7 +62,7 @@ Use the `Number/*` styles for money and liters; they are the hero of every scree
 - **Mobile (worker, customer):** 390×844. The worker app is **mobile-first** (phone or tablet), with big numbers and big buttons. The customer app has a bottom Tab Bar.
 - **RTL mirroring:** the start edge is the right. Mirror icons that imply direction (back arrow, chevrons) but not logos or numbers. In CSS use logical properties (`margin-inline-start`, `ps-4`/`pe-4` in Tailwind), never `left`/`right`.
 
-## Components (build these once, in `packages/fuelos_ui` for Flutter and `apps/owner-web/components/ui` for web)
+## Components (build these once, as React components in `packages/ui`, shared by every app)
 | Component | Variants / props | Notes |
 |---|---|---|
 | Button | type: primary · action · secondary · ghost · danger; size: md (40px) · **lg (56px, worker)** | exactly one primary/action per screen |
@@ -89,6 +89,6 @@ Use the `Number/*` styles for money and liters; they are the hero of every scree
 - **States:** ST1 Skeleton · ST2 Empty · ST3 Error · ST4 Permission
 
 ## Implementation notes
-- **Web:** Next.js App Router + Tailwind. Map the tokens into `tailwind.config` `theme.extend.colors` using the same names (`brand-primary`, `status-danger-50`, …). Load Cairo with `next/font/google`.
-- **Flutter:** put a `FuelTheme` in `packages/fuelos_ui` (a `ThemeExtension` for the status colors) and load Cairo with `google_fonts` or bundle it. Force Latin digits in `NumberFormat('#,##0', 'en')`.
+- **All apps:** Next.js App Router + Tailwind. `packages/ui` exports a Tailwind preset generated from `design/tokens.json`, with the same names (`brand-primary`, `status-danger-50`, …); apps use it instead of raw hex. Load Cairo with `next/font/google`.
+- **Numbers:** format with `Intl.NumberFormat('en-US')` so digits stay Latin (`1,250`); the helpers live in `packages/core`.
 - To change a token, update `design/figma-plugin/src/00-core.js` and rebuild the plugin (`build.sh`), then regenerate `design/tokens.json` so Figma and code stay in sync.
