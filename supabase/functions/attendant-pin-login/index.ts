@@ -69,9 +69,13 @@ async function login(deviceId: string, secret: string, userId: string, pin: stri
 
   // Mint a session without sending anything: generate a magic-link token server-side and redeem it.
   const { data: userData, error: userErr } = await admin.auth.admin.getUserById(userId);
-  const email = userData?.user?.email;
-  if (userErr || !email) {
+  if (userErr || !userData?.user) {
+    throw new Error(`getUserById(${userId}): ${userErr?.message ?? "no user returned"}`);
+  }
+  const email = userData.user.email;
+  if (!email) {
     // Attendant accounts need an email (it can be a placeholder address) for this flow.
+    console.warn(`attendant ${userId} has no email; PIN login cannot mint a session`);
     return fail("FUELOS_PIN_LOGIN_UNAVAILABLE");
   }
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: "magiclink", email });

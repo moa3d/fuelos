@@ -33,9 +33,12 @@ create table if not exists auth.users (
   recovery_token          varchar(255),
   email_change_token_new  varchar(255),
   email_change            varchar(255),
-  created_at          timestamptz default now(),
-  updated_at          timestamptz default now()
+  created_at          timestamptz,               -- no default, exactly like Supabase (seed must set it)
+  updated_at          timestamptz
 );
+-- Supabase Auth cannot load users whose created_at/updated_at are NULL; fail loudly here too.
+alter table auth.users add constraint local_users_have_timestamps
+  check (created_at is not null and updated_at is not null) not valid;
 
 -- same behaviour as Supabase: the user id comes from the request JWT
 create or replace function auth.uid() returns uuid language sql stable as $$

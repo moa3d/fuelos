@@ -12,13 +12,16 @@ create or replace function pg_temp.act_as(p_user uuid) returns void language sql
 $$;
 
 -- ---------- demo users ----------
+-- created_at / updated_at have NO default in Supabase's auth.users: leaving them NULL breaks Supabase Auth
+-- ("Scan error on column created_at"), e.g. the attendant PIN login cannot load the user.
 insert into auth.users (instance_id, id, aud, role, email, phone, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data,
-                        confirmation_token, recovery_token, email_change_token_new, email_change)
+                        confirmation_token, recovery_token, email_change_token_new, email_change,
+                        created_at, updated_at)
 select '00000000-0000-0000-0000-000000000000', u.id::uuid, 'authenticated', 'authenticated', u.email, u.phone,
        extensions.crypt('FuelOS-demo-2026', extensions.gen_salt('bf')), now(),
        '{"provider":"email","providers":["email"]}'::jsonb, jsonb_build_object('full_name', u.full_name),
-       '', '', '', ''
+       '', '', '', '', now(), now()
 from (values
   ('11111111-0000-4000-8000-000000000001', 'owner@demo.fuelos.app',      null,           'أحمد سالم'),
   ('11111111-0000-4000-8000-000000000002', 'accountant@demo.fuelos.app', null,           'ليلى حداد'),

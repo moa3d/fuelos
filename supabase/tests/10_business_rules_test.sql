@@ -267,7 +267,7 @@ select pg_temp.ok((select count(*) > 0 from journal_entries), 'platform: time-bo
 
 -- another tenant sees nothing of محطة النور
 reset role;
-insert into auth.users (id, email) values ('11111111-0000-4000-8000-000000000099', 'other-owner@demo.fuelos.app');
+insert into auth.users (id, email, created_at, updated_at) values ('11111111-0000-4000-8000-000000000099', 'other-owner@demo.fuelos.app', now(), now());
 set local role authenticated;
 select pg_temp.act_as('11111111-0000-4000-8000-000000000099');
 select create_station(null, 'محطة أخرى', 'SYP') as other_station \gset
