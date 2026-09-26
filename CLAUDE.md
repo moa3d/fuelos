@@ -129,4 +129,5 @@ Work in small vertical slices (DB → RPC → UI → test). Before building a sc
 
 ## Decisions
 - **2026-09-26 — Worker app is a Next.js PWA, not Flutter** (`docs/briefs/01-worker-pwa.md`): the owner works on Windows with no Mac and large downloads stall on his network; Node is already installed and one TypeScript/React stack serves every interface. Store builds later via Capacitor in the cloud.
+- **2026-09-26 — S2 records every fill, cash included** (owner's choice): receipts and history for the attendant; expected cash still subtracts only card, credit and voucher.
 - **Database and Edge Function changes go through Claude in Cowork**, which has the Supabase connection. Do not edit `supabase/migrations` here; tell the user what to relay instead.

@@ -1,23 +1,49 @@
 "use client";
-// The attendant's open shift (spec §6): current pump, earlier pumps, «الانتقال إلى مضخة أخرى».
-// S2 «تعبئة سريعة» will be added here; sales will carry the current leg (p_leg).
-import { formatDay, formatMoney, formatNumber, formatTime } from "@fuelos/core";
-import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
+// S2 «تعبئة سريعة» (design/screens/S2.png) and S3 «تم حفظ العملية» (S3.png) — the home of an open shift.
+// Every fill is recorded (owner's decision 2026-09-26; cash fills don't change expected cash).
+// The price is the one locked at shift open; record_sale goes into the outbox with the current leg (p_leg).
+import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
+import { AlertBanner, Button, cx, operationsText, StatusBadge } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { currentLeg, db, type CurrentMember, type LocalLeg, type LocalShift, type StationRef } from "@/lib/db";
-import { litersToTenths } from "@/lib/reading";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { currentLeg, db, getDevice, type CurrentMember, type LocalShift, type StationRef } from "@/lib/db";
+import { centsToString, toCents } from "@/lib/money";
+import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
+import { parseCash } from "@/lib/reading";
+import { amountFromLiters, litersFromAmount, milliToString, parseLitersMilli } from "@/lib/sale-math";
+import { salesOfShift, type PaymentMethod } from "@/lib/sales";
 import { signedInMember } from "@/lib/session";
+import { priceAt } from "@/lib/shift-math";
 import { useOutbox } from "@/lib/use-sync";
-import { liters, StickyAction } from "../shift-parts";
-import { WorkerHeader } from "../worker-header";
+import { newId } from "@/lib/uuid";
+import { CheckIcon, StickyAction } from "../shift-parts";
+import { HeaderChip, WorkerHeader } from "../worker-header";
 
-export default function ShiftPage() {
+type Mode = "liters" | "amount";
+const QUICK_AMOUNTS = ["2000", "5000", "10000"];
+const METHODS: { id: PaymentMethod; label: string; icon: ReactNode; soon?: string }[] = [
+  { id: "cash", label: "نقدي", icon: <CashIcon /> },
+  { id: "card", label: "بطاقة", icon: <CardIcon /> },
+  { id: "credit", label: "آجل لشركة", icon: <BuildingIcon />, soon: "يأتي مع شاشة الشركات" },
+  { id: "voucher", label: "قسيمة", icon: <TicketIcon /> },
+];
+const METHOD_LABEL: Record<PaymentMethod, string> = { cash: "نقدي", card: "بطاقة", credit: "آجل لشركة", voucher: "قسيمة" };
+
+export default function QuickFillPage() {
   const router = useRouter();
   const [me, setMe] = useState<CurrentMember>();
   const [shift, setShift] = useState<LocalShift>();
   const [ref, setRef] = useState<StationRef>();
   const [now] = useState(() => Date.now());
+  const [mode, setMode] = useState<Mode>("amount");
+  const [value, setValue] = useState("");
+  const [nozzleId, setNozzleId] = useState<string>();
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [hint, setHint] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
+  const [savedId, setSavedId] = useState<string>();
+  const busy = useRef(false);
   const outbox = useOutbox(me?.userId);
 
   useEffect(() => {
@@ -30,110 +56,302 @@ export default function ShiftPage() {
       setRef(await db.reference.get(m.stationId).catch(() => undefined));
       setMe(m);
       setShift(local);
+      setNozzleId(currentLeg(local)?.readings[0]?.nozzleId);
     })();
   }, [router]);
 
   if (!me || !shift) return <main className="min-h-dvh bg-surface-page" aria-busy />;
 
   const leg = currentLeg(shift);
-  const earlier = shift.legs.filter((l) => l !== leg);
-  const unsentForShift = shift.legs.some((l) => outbox.byId.get(l.legId)?.status === "pending")
-    || outbox.byId.get(shift.shiftId)?.status === "pending";
-  const hours = (now - Date.parse(shift.openedAt)) / 3_600_000;
-  const tooLong = ref && hours > ref.maxShiftHours;
   const currency = ref?.currencyLabel ?? "ل.س";
+  const nozzle = leg?.readings.find((r) => r.nozzleId === nozzleId) ?? leg?.readings[0];
+  const price = nozzle && ref ? priceAt(ref.prices, nozzle.productId, shift.openedAt) : null;
+  const amountTyped = mode === "amount" ? parseCash(value) : null;
+  const litersMilli =
+    price === null ? null
+    : mode === "amount" ? (amountTyped === null ? null : litersFromAmount(toCents(amountTyped)!, price))
+    : parseLitersMilli(value);
+  const recordedCents = litersMilli !== null && price !== null ? amountFromLiters(litersMilli, price) : null;
+  const money = (c: bigint) => formatMoney(centsToString(c), currency);
+  const hours = (now - Date.parse(shift.openedAt)) / 3_600_000;
+  const elapsed = `${Math.floor(hours)}:${String(Math.floor((hours % 1) * 60)).padStart(2, "0")}`;
+  const shiftSales = salesOfShift(outbox.byId.values(), shift.shiftId);
+  const problem =
+    !leg ? "لا توجد مضخة حالية — اتصل بالمدير"
+    : price === null ? "لا يوجد سعر لهذا الوقود في بداية المناوبة — اتصل بالمدير"
+    : value === "" ? (mode === "amount" ? "أدخل المبلغ المدفوع" : "أدخل عدد اللترات")
+    : litersMilli === null ? (mode === "amount" ? "أدخل مبلغاً بالأرقام دون كسور" : "أدخل اللترات بثلاث خانات عشرية على الأكثر")
+    : litersMilli <= 0 ? "الكمية يجب أن تكون أكبر من صفر"
+    : undefined;
 
+  function setAmountQuick(v: string) {
+    setMode("amount");
+    setValue(v);
+    setHint(undefined);
+  }
+
+  function fullTank() {
+    setMode("liters");
+    setValue("");
+    setHint("املأ حتى يمتلئ الخزان، ثم اكتب اللترات كما تظهر على شاشة المضخة");
+  }
+
+  function resetForm() {
+    setValue("");
+    setHint(undefined);
+    setMethod("cash");
+    setSaveError(undefined);
+    setSavedId(undefined);
+  }
+
+  async function save() {
+    if (busy.current) return;                           // a double tap must not record two fills
+    busy.current = true;
+    try {
+      if (!me || !shift || !leg || !nozzle || price === null || litersMilli === null || recordedCents === null || problem || saving) return;
+      setSaving(true);
+      setSaveError(undefined);
+      const saleId = newId();
+      const device = await getDevice().catch(() => undefined);
+      const params = {
+        p_sale_id: saleId,
+        p_shift: shift.shiftId,
+        p_leg: leg.legId,
+        p_nozzle: nozzle.nozzleId,
+        p_liters: milliToString(litersMilli),
+        p_unit_price: centsToString(price),
+        p_method: method,
+        p_device: device?.deviceId ?? null,
+        p_client_created_at: new Date().toISOString(),
+      };
+      const meta = { amount: centsToString(recordedCents), product: nozzle.label, pump: String(leg.pumpNumber) };
+      try {
+        await db.transaction("rw", db.outbox, async () => {
+          await assertRoom(me.userId, ref?.offlineMaxOps ?? 50);
+          await db.outbox.add(newOutboxRow(me.userId, "record_sale", saleId, params, meta));
+        });
+      } catch (e) {
+        setSaveError(e instanceof OutboxFullError
+          ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
+          : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
+        return;
+      }
+      void syncNow();
+      setSavedId(saleId);
+    } finally {
+      setSaving(false);
+      busy.current = false;
+    }
+  }
+
+  const chips = leg && (
+    <>
+      <HeaderChip><ClockIcon /> المناوبة مفتوحة · {elapsed}</HeaderChip>
+      <HeaderChip><PumpIcon /> المضخة {leg.pumpNumber} · {nozzle?.label}</HeaderChip>
+    </>
+  );
+
+  // ---------- S3: تم حفظ العملية ----------
+  const saved = savedId ? outbox.byId.get(savedId) : undefined;
+  if (savedId && saved) {
+    const serverAmount = saved.result?.amount;
+    const total = (serverAmount !== undefined ? toCents(String(serverAmount)) : null) ?? toCents(saved.meta?.amount ?? "0") ?? 0n;
+    const unit = saved.result?.unit_price ?? saved.params.p_unit_price;
+    return (
+      <div className="min-h-dvh bg-surface-page pb-48">
+        <WorkerHeader userId={me.userId} name={me.displayName} stationName={ref?.stationName} chips={chips} />
+        <main className="mx-auto flex w-full max-w-[390px] flex-col items-center gap-4 px-4 pt-8 text-center">
+          <span className="flex size-20 items-center justify-center rounded-full bg-brand-action-50 text-brand-action-700">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
+          </span>
+          <h1 className="text-heading-h1-24">تم حفظ العملية</h1>
+          <p className="text-body-regular-14 text-text-secondary">
+            رقم العملية <span dir="ltr">{savedId.slice(0, 8).toUpperCase()}</span> · {formatTime(saved.createdAt)}
+          </p>
+
+          {saved.status === "pending" && (
+            <AlertBanner tone="warning" className="w-full text-start" title="محفوظة على الجهاز">
+              ستُرسل تلقائياً عند عودة الاتصال · {operationsText(outbox.unsent)} بانتظار المزامنة
+            </AlertBanner>
+          )}
+          {saved.status === "sent" && <StatusBadge tone="success">أُرسلت إلى الخادم</StatusBadge>}
+
+          <section className="w-full rounded-lg bg-surface-card p-4 text-start shadow-card">
+            <dl className="flex flex-col gap-2 text-body-regular-14">
+              <Row label="الوقود" value={saved.meta?.product ?? ""} />
+              <Row label="الكمية" value={`${formatNumber(Number(saved.params.p_liters), 2)} لتر`} />
+              <Row label="سعر اللتر" value={formatMoney(String(unit), currency)} />
+              <Row label="طريقة الدفع" value={METHOD_LABEL[saved.params.p_method as PaymentMethod]} />
+              <Row label="الزبون" value="غير مرتبط" muted />
+            </dl>
+            <div className="mt-3 flex items-baseline justify-between border-t border-border-default pt-3">
+              <span className="text-heading-h3-16">الإجمالي</span>
+              <span className="text-number-xl-32">{money(total)}</span>
+            </div>
+          </section>
+        </main>
+        <footer className="fixed inset-x-0 bottom-0 border-t border-border-default bg-surface-card">
+          <div className="mx-auto flex w-full max-w-[390px] flex-col gap-2 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3">
+            <Button variant="secondary" size="lg" block onClick={() => window.print()}>طباعة</Button>
+            <Button variant="action" size="lg" block onClick={resetForm}>+ عملية جديدة</Button>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
+  // ---------- S2: تعبئة سريعة ----------
   return (
     <div className="min-h-dvh bg-surface-page pb-48">
-      <WorkerHeader userId={me.userId} name={me.displayName} stationName={ref?.stationName} />
+      <WorkerHeader userId={me.userId} name={me.displayName} stationName={ref?.stationName} chips={chips} />
 
-      <main className="mx-auto flex w-full max-w-[390px] flex-col gap-4 px-4 pt-6">
-        {tooLong && (
+      <main className="mx-auto flex w-full max-w-[390px] flex-col gap-4 px-4 pt-4">
+        {ref && hours > ref.maxShiftHours && (
           <AlertBanner tone="warning" title={`مرّت أكثر من ${ref.maxShiftHours} ساعة على بداية المناوبة`}>
             أغلق المناوبة، أو اتصل بالمدير إن كان عليك الاستمرار.
           </AlertBanner>
         )}
-        {unsentForShift && (
-          <AlertBanner tone="success" title="محفوظة على هذا الجهاز">
-            ستُرسل تلقائياً عند الاتصال بالإنترنت، ولا تحتاج لفعل شيء.
-          </AlertBanner>
-        )}
+        {!leg && <AlertBanner tone="danger" title="لا توجد مضخة حالية لهذه المناوبة">اتصل بالمدير.</AlertBanner>}
 
-        {leg ? (
-          <section className="rounded-lg bg-surface-card p-4 shadow-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-label-12 text-text-secondary">المضخة الحالية</p>
-                <h1 className="text-display-32">مضخة {leg.pumpNumber}</h1>
-              </div>
-              <StatusBadge tone={unsentForShift ? "warning" : "success"}>
-                {unsentForShift ? "بانتظار المزامنة" : "مسجّلة على الخادم"}
-              </StatusBadge>
-            </div>
-            <p className="mt-1 text-body-small-12 text-text-secondary">
-              منذ {formatTime(leg.startedAt)} · بدأت المناوبة {formatDay(shift.openedAt)} {formatTime(shift.openedAt)}
-            </p>
-            <dl className="mt-4 flex flex-col gap-2 text-body-regular-14">
-              {leg.readings.map((r) => (
-                <div key={r.nozzleId} className="flex justify-between">
-                  <dt className="text-text-secondary">القراءة الافتتاحية · {r.label}</dt>
-                  <dd className="font-semibold">{formatNumber(r.opening, 1)} لتر</dd>
-                </div>
+        {leg && (
+          <>
+            <div role="radiogroup" aria-label="طريقة الإدخال" className="grid grid-cols-2 gap-1 rounded-md bg-surface-muted p-1">
+              {(["liters", "amount"] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m}
+                  onClick={() => { setMode(m); setValue(""); setHint(undefined); }}
+                  className={cx("h-11 rounded-sm text-body-strong-14", mode === m ? "bg-surface-card shadow-card" : "text-text-secondary")}>
+                  {m === "liters" ? "باللتر" : "بالمبلغ"}
+                </button>
               ))}
-              {leg.gapNote && (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-text-secondary">سبب فرق القراءة</dt>
-                  <dd className="text-end">{leg.gapNote}</dd>
-                </div>
+            </div>
+
+            {leg.readings.length > 1 && (
+              <div role="radiogroup" aria-label="المسدس" className="flex gap-2">
+                {leg.readings.map((r) => (
+                  <button key={r.nozzleId} type="button" role="radio" aria-checked={r.nozzleId === nozzle?.nozzleId}
+                    onClick={() => setNozzleId(r.nozzleId)}
+                    className={cx("h-11 flex-1 rounded-md border text-body-strong-14",
+                      r.nozzleId === nozzle?.nozzleId ? "border-2 border-brand-primary bg-brand-primary-50" : "border-border-default bg-surface-card")}>
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <section className="rounded-lg border-2 border-brand-primary bg-surface-card p-4">
+              <div className="flex items-center justify-between">
+                <label htmlFor="fill-value" className="text-label-12 text-text-secondary">
+                  {mode === "amount" ? "المبلغ المدفوع" : "عدد اللترات"}
+                </label>
+                {value && <button type="button" onClick={() => setValue("")} className="text-label-12 text-status-danger-700">مسح</button>}
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <input id="fill-value" inputMode={mode === "amount" ? "numeric" : "decimal"} autoComplete="off"
+                  value={value} onChange={(e) => setValue(e.target.value)} placeholder="0"
+                  className="min-w-0 flex-1 bg-transparent font-sans text-number-hero-44 outline-none placeholder:text-text-muted" />
+                <span className="text-heading-h3-16 text-text-muted">{mode === "amount" ? currency : "لتر"}</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between border-t border-border-default pt-3">
+                <span className="text-number-m-18 text-brand-primary">
+                  {litersMilli === null || recordedCents === null ? "=" :
+                    mode === "amount" ? `= ${formatNumber(litersMilli / 1000, 2)} لتر` : `= ${money(recordedCents)}`}
+                </span>
+                <span className="flex items-center gap-1 text-body-small-12 text-text-secondary">
+                  <LockIcon /> {price === null ? "لا يوجد سعر" : `${formatMoney(centsToString(price), currency)}/لتر · سعر مقفل`}
+                </span>
+              </div>
+              {mode === "amount" && amountTyped !== null && recordedCents !== null && recordedCents !== toCents(amountTyped) && (
+                <p className="mt-2 text-body-small-12 text-text-secondary">
+                  يُسجَّل {money(recordedCents)} لأن اللترات تُقرَّب إلى ثلاث خانات عشرية.
+                </p>
               )}
-            </dl>
-          </section>
-        ) : (
-          <AlertBanner tone="danger" title="لا توجد مضخة حالية لهذه المناوبة">اتصل بالمدير.</AlertBanner>
+              {hint && <p className="mt-2 text-body-small-12 text-status-info-700">{hint}</p>}
+            </section>
+
+            <div className="grid grid-cols-4 gap-2">
+              {QUICK_AMOUNTS.map((a) => (
+                <button key={a} type="button" onClick={() => setAmountQuick(a)}
+                  className={cx("h-12 rounded-md border text-body-strong-14",
+                    mode === "amount" && value === a ? "border-brand-primary bg-brand-primary-50" : "border-border-default bg-surface-card")}>
+                  {formatNumber(Number(a))}
+                </button>
+              ))}
+              <button type="button" onClick={fullTank} className="h-12 rounded-md border border-border-default bg-surface-card text-body-strong-14">
+                ملء كامل
+              </button>
+            </div>
+
+            <section>
+              <h2 className="mb-2 text-body-strong-14 text-text-secondary">طريقة الدفع</h2>
+              <div role="radiogroup" aria-label="طريقة الدفع" className="grid grid-cols-2 gap-2">
+                {METHODS.map((m) => {
+                  const active = method === m.id;
+                  return (
+                    <button key={m.id} type="button" role="radio" aria-checked={active} disabled={!!m.soon}
+                      onClick={() => setMethod(m.id)}
+                      className={cx("flex min-h-16 items-center gap-3 rounded-md border px-4 text-start",
+                        active ? "border-2 border-brand-primary bg-brand-primary-50"
+                        : m.soon ? "border-border-default bg-surface-muted text-text-muted" : "border-border-default bg-surface-card")}>
+                      <span className={active ? "text-brand-primary" : "text-text-secondary"}>{m.icon}</span>
+                      <span className="flex-1">
+                        <span className="block text-body-strong-14">{m.label}</span>
+                        {m.soon && <span className="block text-label-11">{m.soon}</span>}
+                      </span>
+                      {active && <span className="text-brand-primary"><CheckIcon /></span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <div className="flex items-center gap-3 rounded-md border border-dashed border-border-strong bg-surface-card p-3" aria-disabled>
+              <span className="text-text-muted"><QrIcon /></span>
+              <div className="flex-1">
+                <p className="text-body-strong-14">ربط زبون (اختياري)</p>
+                <p className="text-body-small-12 text-text-secondary">فقط إن أراد فاتورة رقمية أو نقاطاً</p>
+              </div>
+              <StatusBadge tone="neutral">قريباً</StatusBadge>
+            </div>
+
+            <section className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 shadow-card">
+              <p className="text-body-small-12 text-text-secondary">
+                {shiftSales.length === 0 ? "لم تُسجَّل تعبئات في هذه المناوبة بعد"
+                  : `سجّلت ${operationsText(shiftSales.length)} في هذه المناوبة`}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="secondary" onClick={() => router.push("/shift/move")}>الانتقال إلى مضخة أخرى</Button>
+                <Button variant="secondary" onClick={() => router.push("/shift/close")}>إغلاق المناوبة</Button>
+              </div>
+            </section>
+          </>
         )}
-
-        {earlier.length > 0 && (
-          <details className="rounded-lg bg-surface-card p-4 shadow-card">
-            <summary className="cursor-pointer text-body-strong-14">المضخات السابقة ({earlier.length})</summary>
-            <ul className="mt-3 flex flex-col gap-3">
-              {earlier.map((l) => <EarlierLeg key={l.legId} leg={l} />)}
-            </ul>
-          </details>
-        )}
-
-        <section className="flex justify-between rounded-lg bg-surface-card p-4 text-body-regular-14 shadow-card">
-          <span className="text-text-secondary">صندوق البداية (معك حتى نهاية المناوبة)</span>
-          <span className="font-semibold">{formatMoney(shift.openingCash, currency)}</span>
-        </section>
-
-        <p className="text-center text-body-small-12 text-text-muted">التعبئة السريعة (S2) قادمة في الخطوة التالية.</p>
       </main>
 
       {leg && (
-        <StickyAction
-          onClick={() => router.push("/shift/move")}
-          secondary={<Button variant="secondary" size="lg" block onClick={() => router.push("/shift/close")}>إغلاق المناوبة</Button>}
-        >
-          الانتقال إلى مضخة أخرى
+        <StickyAction hint={problem} error={saveError} disabled={!!problem || saving} onClick={save}>
+          <CheckIcon />
+          {saving ? "جارٍ الحفظ…" : "حفظ العملية"}
         </StickyAction>
       )}
     </div>
   );
 }
 
-function EarlierLeg({ leg }: { leg: LocalLeg }) {
-  const tenths = leg.readings.reduce(
-    (sum, r) => sum + (r.closing === undefined ? 0 : litersToTenths(r.closing) - litersToTenths(r.opening)), 0);
+function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
-    <li className="flex items-center justify-between border-t border-border-default pt-3 text-body-regular-14">
-      <div>
-        <p className="font-semibold">مضخة {leg.pumpNumber}</p>
-        <p className="text-body-small-12 text-text-secondary">
-          {formatTime(leg.startedAt)} – {leg.endedAt ? formatTime(leg.endedAt) : "…"}
-          {leg.gapNote ? ` · فرق قراءة: ${leg.gapNote}` : ""}
-        </p>
-      </div>
-      <span className="font-semibold">{liters(tenths)} لتر</span>
-    </li>
+    <div className="flex items-baseline justify-between">
+      <dt className="text-text-secondary">{label}</dt>
+      <dd className={cx("font-semibold", muted && "text-text-muted")}>{value}</dd>
+    </div>
   );
 }
+
+const svg = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
+function CashIcon() { return <svg {...svg}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></svg>; }
+function CardIcon() { return <svg {...svg}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>; }
+function BuildingIcon() { return <svg {...svg}><rect x="4" y="2" width="16" height="20" rx="1" /><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01" /></svg>; }
+function TicketIcon() { return <svg {...svg}><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v8a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2z" /><path d="M13 6v12" strokeDasharray="2 2" /></svg>; }
+function QrIcon() { return <svg {...svg}><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" /></svg>; }
+function LockIcon() { return <svg {...svg} width={14} height={14}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>; }
+function ClockIcon() { return <svg {...svg} width={14} height={14}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>; }
+function PumpIcon() { return <svg {...svg} width={14} height={14}><path d="M3 22h12M4 9h10M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5" /></svg>; }

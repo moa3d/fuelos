@@ -19,6 +19,7 @@ export type OutboxRow = {
   userId: string;                  // attendant who created it
   rpc: OutboxRpc;
   params: Record<string, unknown>;
+  meta?: Record<string, string>;    // device-only details for the screens (never sent: the RPC rejects unknown args)
   createdAt: string;
   attempts: number;
   status: "pending" | "sent" | "failed_permanent" | "cancelled";
@@ -27,6 +28,7 @@ export type OutboxRow = {
   lastErrorCode?: string;          // FUELOS_* code of a permanent failure
   lastErrorDetail?: Record<string, unknown>;
   sentAt?: string;
+  result?: Record<string, unknown>;  // the server's answer (e.g. record_sale: amount, unit_price) — authoritative
   cancelledAt?: string;            // a refused row the attendant redid (nothing changed on the server)
 };
 

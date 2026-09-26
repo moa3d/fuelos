@@ -13,9 +13,11 @@ import { centsToString, toCents } from "@/lib/money";
 import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
 import { litersToTenths, parseCash } from "@/lib/reading";
 import { loadReference, patchBoard } from "@/lib/reference";
+import { nonCashCents, salesOfShift, sumBy } from "@/lib/sales";
 import { signedInMember } from "@/lib/session";
 import { needsDiffReason, shiftTotals, totalsWithServer, type ServerSummary } from "@/lib/shift-math";
 import { supabase } from "@/lib/supabase";
+import { useOutbox } from "@/lib/use-sync";
 import { newId } from "@/lib/uuid";
 import { AutoTotals, CheckIcon, ClosingReadings, liters, MeterPhotoCard, StickyAction, Steps } from "../../shift-parts";
 import { WorkerHeader } from "../../worker-header";
@@ -33,6 +35,7 @@ export default function CloseShiftPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const busy = useRef(false);
+  const outbox = useOutbox(me?.userId);
   const [now] = useState(() => new Date().toISOString());
 
   useEffect(() => {
@@ -61,6 +64,7 @@ export default function CloseShiftPage() {
   if (!me || !shift) return <main className="min-h-dvh bg-surface-page" aria-busy />;
 
   const leg = currentLeg(shift)!;
+  const sales = salesOfShift(outbox.byId.values(), shift.shiftId);
   const currency = ref?.currencyLabel ?? "ل.س";
   const closeCheck = validateClosing(leg.readings, closing);
   const typed = new Map(closeCheck.readings.map((r) => [r.nozzleId, r.tenths]));
@@ -76,7 +80,7 @@ export default function CloseShiftPage() {
         closingTenths: l === leg ? typed.get(r.nozzleId) : r.closing === undefined ? undefined : litersToTenths(r.closing),
       })),
     })),
-    ref?.prices ?? [], shift.openedAt, toCents(shift.openingCash) ?? 0n);
+    ref?.prices ?? [], shift.openedAt, toCents(shift.openingCash) ?? 0n, nonCashCents(sales));
   const currentTotals = totals.legs.find((t) => t.legId === leg.legId)!;
   const countedValue = parseCash(counted);
   const countedCents = countedValue === null ? null : toCents(countedValue)!;
@@ -159,7 +163,18 @@ export default function CloseShiftPage() {
                 <Row label={`إجمالي المبيعات${shift.legs.length > 1 ? ` (${shift.legs.length} مضخات)` : ""}`}
                   value={totals.missingPrice ? "لا يوجد سعر" : money(totals.meterSalesCents)} />
                 <Row label="صندوق البداية" value={`+ ${formatMoney(shift.openingCash, currency)}`} />
-                <p className="text-body-small-12 text-text-muted">لا توجد عمليات بطاقة أو آجل أو قسائم مسجّلة في هذه المناوبة.</p>
+                {(["card", "credit", "voucher"] as const).map((m) => {
+                  const t = sumBy(sales, m);
+                  return t.count === 0 ? null : (
+                    <div key={m} className="flex items-baseline justify-between">
+                      <dt className="text-text-secondary">
+                        {{ card: "بطاقة", credit: "آجل لشركات", voucher: "قسائم" }[m]}
+                        <span className="block text-body-small-12 text-text-muted">{operationsText(t.count)}</span>
+                      </dt>
+                      <dd className="font-semibold">- {money(t.cents)}</dd>
+                    </div>
+                  );
+                })}
                 <div className="mt-1 flex items-baseline justify-between border-t border-border-default pt-3">
                   <dt className="text-heading-h3-16">النقد المتوقع</dt>
                   <dd className="text-number-l-24">{money(totals.expectedCashCents)}</dd>

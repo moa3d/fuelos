@@ -14,8 +14,10 @@ export class OutboxFullError extends Error {
   }
 }
 
-export function newOutboxRow(userId: string, rpc: OutboxRpc, id: string, params: Record<string, unknown>): OutboxRow {
-  return { id, userId, rpc, params, createdAt: new Date().toISOString(), attempts: 0, status: "pending" };
+export function newOutboxRow(
+  userId: string, rpc: OutboxRpc, id: string, params: Record<string, unknown>, meta?: Record<string, string>,
+): OutboxRow {
+  return { id, userId, rpc, params, meta, createdAt: new Date().toISOString(), attempts: 0, status: "pending" };
 }
 
 /** Rows not yet accepted by the server (pending, or stopped on an error). */
@@ -117,14 +119,15 @@ async function send(row: OutboxRow): Promise<boolean> {
   try {
     res = await supabase().rpc(row.rpc, row.params).abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS));
   } catch (e) {
-    res = { error: { message: String(e), code: "", details: "", hint: "" }, status: 0 };  // treat as network
+    res = { data: null, error: { message: String(e), code: "", details: "", hint: "" }, status: 0 };  // treat as network
   }
-  const { error, status: http } = res;
+  const { data, error, status: http } = res;
 
   const failure = error ? { status: http, code: error.code, message: error.message, details: error.details } : undefined;
   if (!failure || alreadyApplied(row.rpc, failure)) {
     await db.outbox.update(key, {
       status: "sent", sentAt: new Date().toISOString(),
+      result: data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : undefined,
       nextAttemptAt: undefined, lastError: undefined, lastErrorCode: undefined, lastErrorDetail: undefined,
     });
     return true;
@@ -153,6 +156,13 @@ async function send(row: OutboxRow): Promise<boolean> {
   }
 }
 
+/** A refused open_shift has fills queued behind it: only the manager can sort that out. */
+export class SalesQueuedError extends Error {
+  constructor() {
+    super("sales queued behind the refused row");
+  }
+}
+
 /**
  * A refused row changed nothing on the server (the RPC rolled back), so the attendant may redo it.
  * The refused row and every later row of the same shift are kept, marked cancelled, and the local
@@ -173,6 +183,8 @@ export async function redoRefused(userId: string, rowId: string, fixLocal: () =>
       .filter((r) => r.seq! >= row.seq! && r.status !== "sent" && r.status !== "cancelled"
         && (r.params.p_shift_id ?? r.params.p_shift) === shiftId)
       .toArray();
+    // fills are the proof of a sale: never cancel them on the device, even behind a refused open
+    if (later.some((r) => r.rpc === "record_sale")) throw new SalesQueuedError();
     for (const r of later) await db.outbox.update(r.seq!, { status: "cancelled", cancelledAt: now });
     await fixLocal();
   });

@@ -14,7 +14,7 @@ The database already enforces most of these rules (`supabase/migrations`). App c
 4. **Every sensitive change is audited** automatically (`audit_log`, via triggers). A reason field in the UI must reach the DB column (`reason`, `decision_note`, `diff_reason`, `void_reason`).
 
 ## Shift money (meter-based)
-- Cash fills are **not** recorded one by one. Liters come from the meter: `liters = closing_reading − opening_reading` per nozzle.
+- Cash is counted from the meter, not from recorded fills: `liters = closing_reading − opening_reading` per nozzle. The worker app **records every fill anyway**, cash included, so the attendant gets a receipt and a history (owner's decision, 2026-09-26). Recorded cash fills never enter the cash formula.
 - Card / credit (آجل) / voucher fills **must** be recorded with `record_sale`. A fill for a linked customer is recorded too, so it gets an invoice.
 - **Expected cash = opening_cash + meter_sales − card − credit − voucher.** Implemented in `shift_summary()`. Never re-implement it in the app; call the RPC and show its numbers.
 - If the cash difference is above `stations.cash_tolerance` (default 1,000 ل.س), a written reason is required (`FUELOS_REASON_REQUIRED`).

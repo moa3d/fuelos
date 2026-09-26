@@ -6,16 +6,18 @@
 import { errorMessage, formatDay, formatTime, PUMP_TAKEN_OFFLINE_MESSAGE } from "@fuelos/core";
 import { AlertBanner, Button, operationsText, SyncIndicator } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { db, type OutboxRow } from "@/lib/db";
 import { initials } from "@/lib/names";
-import { redoRefused, unsentCount } from "@/lib/outbox";
+import { redoRefused, SalesQueuedError, unsentCount } from "@/lib/outbox";
 import { signOutLocally } from "@/lib/supabase";
 import { useOutbox, useSyncState } from "@/lib/use-sync";
 
-export function WorkerHeader({ userId, name, stationName, title, subtitle, backHref }: {
+export function WorkerHeader({ userId, name, stationName, title, subtitle, backHref, chips }: {
   userId: string; name: string; stationName?: string;
   title?: string; subtitle?: string; backHref?: string;
+  /** pills under the header row (S2/S3: shift time, current pump) */
+  chips?: ReactNode;
 }) {
   const router = useRouter();
   const { state, needsSignIn } = useSyncState();
@@ -67,6 +69,7 @@ export function WorkerHeader({ userId, name, stationName, title, subtitle, backH
             </>
           )}
         </div>
+        {chips && <div className="mx-auto flex w-full max-w-[390px] flex-wrap gap-2 px-4 pb-4">{chips}</div>}
       </header>
       <div className="mx-auto w-full max-w-[390px] px-4">
         {outbox.failed && <RefusedBanner row={outbox.failed} userId={userId} />}
@@ -97,6 +100,7 @@ export function WorkerHeader({ userId, name, stationName, title, subtitle, backH
 function RefusedBanner({ row, userId }: { row: OutboxRow; userId: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   // two attendants took the same pump offline; the first to reach the server kept it (spec §7)
   const pumpTaken = (row.rpc === "open_shift" || row.rpc === "switch_pump") && row.lastErrorCode === "FUELOS_PUMP_BUSY";
   const reason = pumpTaken
@@ -106,6 +110,7 @@ function RefusedBanner({ row, userId }: { row: OutboxRow; userId: string }) {
 
   async function redo() {
     setBusy(true);
+    setBlocked(false);
     try {
       if (row.rpc === "open_shift") {
         await redoRefused(userId, row.id, () => db.shift.delete(userId));
@@ -121,6 +126,9 @@ function RefusedBanner({ row, userId }: { row: OutboxRow; userId: string }) {
         });
         router.replace("/shift/close");
       }
+    } catch (e) {
+      if (e instanceof SalesQueuedError) setBlocked(true);
+      else throw e;
     } finally {
       setBusy(false);
     }
@@ -131,7 +139,8 @@ function RefusedBanner({ row, userId }: { row: OutboxRow; userId: string }) {
     <AlertBanner tone="danger" className="mt-4" title={`${what} — ${reason}`}
       action={canRedo ? <Button variant="secondary" disabled={busy} onClick={redo}>
         {row.rpc === "open_shift" ? "ابدأ من جديد" : "عدّل الإغلاق"}</Button> : undefined}>
-      {canRedo ? "لم يتغيّر شيء على الخادم. صحّح البيانات وأرسلها من جديد."
+      {blocked ? "عمليات التعبئة في هذه المناوبة محفوظة على الجهاز ولا يمكن إلغاؤها. اتصل بالمدير."
+        : canRedo ? "لم يتغيّر شيء على الخادم. صحّح البيانات وأرسلها من جديد."
         : "العملية محفوظة على الجهاز، وتوقفت المزامنة عندها. اتصل بالمدير."}
     </AlertBanner>
   );
@@ -143,5 +152,14 @@ function BackIcon() {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M5 12h14M13 6l6 6-6 6" />
     </svg>
+  );
+}
+
+/** Dark pill for the header chips. */
+export function HeaderChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brand-dark-800 px-3 text-label-12 text-text-on-dark">
+      {children}
+    </span>
   );
 }
