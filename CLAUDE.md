@@ -39,7 +39,8 @@ supabase/
   functions/           Edge Functions (attendant-pin-login)
   seed.sql             demo station «محطة النور» (dev only)
   tests/               10_business_rules, 20_pin_login + local/ (stub + runner for plain Postgres)
-apps/worker/           worker PWA (Next.js) · (planned) owner-web, customer
+apps/worker/           worker PWA (Next.js)
+apps/owner-web/        office app for owner / accountant / shift manager (Next.js) · (planned) customer, admin
 packages/ui/           Tailwind preset from tokens + React components
 packages/core/         Supabase client factory, errors.ts, formatting
 package.json           npm workspaces: apps/*, packages/* (npm only, no pnpm/yarn)
@@ -66,7 +67,8 @@ PGHOST=localhost PGUSER=postgres ./supabase/tests/local/run_local.sh
 
 # Apps (npm workspaces, from the repo root)
 npm install
-npm run dev -w apps/worker                # http://localhost:3000
+npm run dev -w apps/worker                # worker app, http://localhost:3000
+npm run dev:owner                         # office app, http://localhost:3001
 npm run build && npm run lint
 ```
 If `npm install` hangs on one large package, stop after ~3 minutes and tell the user; he downloads the `.tgz` in the browser and you run `npm install <path>.tgz`.

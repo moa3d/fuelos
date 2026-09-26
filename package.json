@@ -7,10 +7,11 @@
   ],
   "scripts": {
     "dev": "npm run dev -w apps/worker",
-    "build": "npm run build -w apps/worker",
-    "lint": "npm run lint -w apps/worker",
+    "dev:owner": "npm run dev -w apps/owner-web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
     "tokens": "npm run tokens -w packages/ui",
-    "test": "npm run test -w apps/worker"
+    "test": "npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=20"
