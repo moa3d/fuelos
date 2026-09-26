@@ -31,7 +31,10 @@ export default function ApprovalsPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [tick, setTick] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
-  const [selectedId, setSelectedId] = useState<string>();
+  // /approvals?select=<request id> (links from O3) opens that request
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () => (typeof window === "undefined" ? undefined : new URLSearchParams(window.location.search).get("select") ?? undefined),
+  );
   const [history, setHistory] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
