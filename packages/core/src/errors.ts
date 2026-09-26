@@ -10,6 +10,9 @@ export const FALLBACK_MESSAGE = "حدث خطأ غير متوقع — حاول م
 export const LOGIN_NETWORK_MESSAGE = "لا يوجد اتصال — الدخول يحتاج إنترنت أول مرة";
 export const LOGIN_UNAVAILABLE_MESSAGE = "تعذّر الدخول الآن — حاول بعد قليل";
 
+/** A pump taken offline by two attendants: the server kept the first leg (spec §7). */
+export const PUMP_TAKEN_OFFLINE_MESSAGE = "المضخة كانت مسجّلة مع زميل — راجع المدير";
+
 /** «بقيت محاولة واحدة» / «بقيت محاولتان» / «بقيت 3 محاولات» */
 export function attemptsLeftText(n: number): string {
   if (n === 1) return "بقيت محاولة واحدة";
@@ -32,7 +35,11 @@ const messages: Record<string, (d: ErrorDetail) => string> = {
   "42501": () => "هذا الإجراء غير متاح لحسابك — اطلبه من مدير المناوبة أو صاحب المحطة",
 
   // shifts & sales
-  FUELOS_PUMP_BUSY: () => "هذه المضخة لديها مناوبة مفتوحة مع زميل آخر",
+  FUELOS_PUMP_BUSY: () => "هذه المضخة مع زميل الآن",
+  FUELOS_SHIFT_ALREADY_OPEN: () => "لديك مناوبة مفتوحة — أكملها أو أغلقها أولاً",
+  FUELOS_GAP_NOTE_REQUIRED: () => "القراءة أعلى من آخر قراءة مسجّلة — اكتب السبب",
+  FUELOS_READING_ABOVE_NEXT: () => "القراءة أعلى من بداية مناوبة زميل على هذه المضخة — راجع المدير",
+  FUELOS_BAD_SHIFT_TRANSITION: () => "المناوبة ليست مفتوحة الآن — راجع المدير",
   FUELOS_READING_MISSING: () => "أدخل قراءة كل مسدس قبل المتابعة",
   FUELOS_READING_BELOW_LAST: () => "القراءة أقل من آخر قراءة مسجلة لهذا المسدس",
   FUELOS_SHIFT_NOT_OPEN: () => "المناوبة مغلقة أو بانتظار الاعتماد",

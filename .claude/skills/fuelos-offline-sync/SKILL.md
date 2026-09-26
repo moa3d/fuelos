@@ -13,16 +13,18 @@ The spec says stations have no new hardware and the internet drops. The worker a
 - **When to sync**: on the `online` event, on window focus, and every 30 s while the app is open. iOS has no Background Sync, so sync only while the app is open.
 - **Outbox row** fields:
   - `id` (the client UUID of the operation)
-  - `rpc` (`open_shift` | `record_sale` | `submit_shift`)
+  - `rpc` (`open_shift` | `switch_pump` | `record_sale` | `submit_shift`)
   - `params` (JSON)
   - `created_at`
   - `attempts`
   - `last_error`
   - `status` (`pending` | `sent` | `failed_permanent`)
-- **Client-generated UUID v4** for every shift and sale, created **before** the first attempt and never regenerated. The server RPCs are idempotent on that id: replaying `record_sale` with the same id returns `{"replayed": true}`, and replaying `open_shift` returns the same shift.
-- Send in **FIFO order**, one at a time. `record_sale` depends on its `open_shift`, and `submit_shift` depends on all its sales.
+- **Client-generated UUID v4** for every shift, pump leg and sale, created **before** the first attempt and never regenerated. The server RPCs are idempotent on that id: replaying `record_sale` returns `{"replayed": true}`, replaying `switch_pump` (on `p_new_leg_id`) returns `{"replayed": true}`, and replaying `open_shift` returns the same shift.
+- **Shift legs** (migration `20260926000200`): a shift belongs to the attendant and spans several pumps. `open_shift(p_shift_id, p_leg_id, p_pump, …, p_gap_note)` opens the first leg; `switch_pump(p_shift, p_new_leg_id, p_closing, p_new_pump, p_opening, p_gap_note)` ends the current leg and opens the next; `submit_shift(p_shift, p_closing, …)` closes the current leg; `record_sale` carries `p_leg`. An opening reading above the last one needs `p_gap_note` (`FUELOS_GAP_NOTE_REQUIRED`).
+- Send in **FIFO order** (`++seq`), one at a time. `switch_pump` and `record_sale` depend on the `open_shift` (and moves) before them, and `submit_shift` depends on all of them.
 - **Each row belongs to the attendant who created it** (`userId`) and is sent only with that attendant's session: `open_shift` uses `auth.uid()`, so another attendant's session would take the shift. After «تبديل العامل» the rows wait until their owner signs in again (the header warns before switching).
-- A row the server refused stays `failed_permanent` and **stops the queue**. The only row that may be marked `cancelled` is a refused `open_shift` (nothing was created on the server); the attendant then starts again. Rows are never deleted.
+- A row the server refused stays `failed_permanent` and **stops the queue**. A refused RPC changed nothing on the server, so a refused `open_shift` («ابدأ من جديد») or `submit_shift` («عدّل الإغلاق») may be redone: the row and the later rows of the same shift are marked `cancelled` (kept) and the local shift is fixed. A refused `switch_pump` (e.g. two attendants took the same pump offline → «المضخة كانت مسجّلة مع زميل — راجع المدير») is a manager task and is not redone on the device. Rows are never deleted.
+- While a `submit_shift` is unsent, the same attendant cannot start a new shift on the device (S1 sends him to S7).
 - Implementation: `apps/worker/lib/outbox.ts` (engine), `lib/outbox-policy.ts` (pure rules, unit-tested with `npm test`), `app/sync-runner.tsx` (triggers).
 - Keep `client_created_at` (device time) in the params. The server keeps both that and `received_at`.
 
@@ -36,7 +38,7 @@ The spec says stations have no new hardware and the internet drops. The worker a
   - غير متصل — «محفوظ على الجهاز · N عمليات بانتظار المزامنة»
   - جاري المزامنة
 - The saved screen (S3 «تم الحفظ (دون اتصال)») shows the pending count and that the sale is safe on the device.
-- Also report `pending_ops` / `last_sync_at` on `devices`, so the owner can see a device that is stuck.
+- Also report `pending_ops` / `last_sync_at` on `devices` through `report_device_sync(p_device, p_pending)` after each sync run (all attendants' unsent rows on the device), so the owner can see a device that is stuck.
 
 ## Retry policy
 | Result | Action |
@@ -51,7 +53,10 @@ The server is authoritative. For example, `record_sale` returns the server `unit
 ## Error code → Arabic (never show the code itself)
 | Code | Message (worker) | Action |
 |---|---|---|
-| `FUELOS_PUMP_BUSY` | «هذه المضخة لديها مناوبة مفتوحة مع زميل آخر» | اختر مضخة أخرى / اتصل بالمدير |
+| `FUELOS_PUMP_BUSY` | «هذه المضخة مع زميل الآن» (a queued move refused offline: «المضخة كانت مسجّلة مع زميل — راجع المدير») | اختر مضخة أخرى / اتصل بالمدير |
+| `FUELOS_SHIFT_ALREADY_OPEN` | «لديك مناوبة مفتوحة — أكملها أو أغلقها أولاً» | open the shift screen |
+| `FUELOS_GAP_NOTE_REQUIRED` | «القراءة أعلى من آخر قراءة مسجّلة — اكتب السبب» | show the reason field |
+| `FUELOS_READING_ABOVE_NEXT` | «القراءة أعلى من بداية مناوبة زميل على هذه المضخة — راجع المدير» | |
 | `FUELOS_READING_MISSING` | «أدخل قراءة كل مسدس قبل المتابعة» | highlight the empty field |
 | `FUELOS_READING_BELOW_LAST` | «القراءة أقل من آخر قراءة مسجلة لهذا المسدس» | re-enter / take a photo of the meter |
 | `FUELOS_SHIFT_NOT_OPEN` | «المناوبة مغلقة أو بانتظار الاعتماد» | افتح مناوبة جديدة |

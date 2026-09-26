@@ -7,7 +7,7 @@ export type DeviceCredential = { key: "current"; deviceId: string; deviceSecret:
 /** Who is signed in on this device (for display while offline). */
 export type CurrentMember = { key: "current"; userId: string; displayName: string; stationId: string };
 
-export type OutboxRpc = "open_shift" | "record_sale" | "submit_shift";
+export type OutboxRpc = "open_shift" | "switch_pump" | "record_sale" | "submit_shift";
 
 /**
  * Offline outbox row. Rows are NEVER deleted: they are the proof of the operation.
@@ -27,32 +27,62 @@ export type OutboxRow = {
   lastErrorCode?: string;          // FUELOS_* code of a permanent failure
   lastErrorDetail?: Record<string, unknown>;
   sentAt?: string;
-  cancelledAt?: string;            // only for an open_shift the server refused (nothing was created)
+  cancelledAt?: string;            // a refused row the attendant redid (nothing changed on the server)
 };
 
-/** Pumps, nozzles and fuels of the station, cached for offline use. */
-export type NozzleRef = { id: string; label: string; productName: string; lastReading: number };
-export type PumpRef = { id: string; number: number; name: string | null; nozzles: NozzleRef[] };
+/** The pump board (pump_board RPC) and station settings, cached for offline use. */
+export type NozzleRef = { id: string; label: string; productId: string; productName: string; lastReading: number };
+export type PumpRef = {
+  id: string; number: number; name: string | null;
+  heldBy: string | null;           // display name of the attendant on it now (at fetch time)
+  heldByMe: boolean;
+  nozzles: NozzleRef[];
+};
+export type PriceRef = { productId: string; price: string; effectiveAt: string };
 export type StationRef = {
   stationId: string;
   stationName: string;
   currencyLabel: string;
   offlineMaxOps: number;
+  cashTolerance: string;           // money as a string (numeric), never a float
+  maxShiftHours: number;
   pumps: PumpRef[];
+  prices: PriceRef[];              // for the local «تقديري» preview only
   fetchedAt: string;
 };
 
-/** The attendant's open shift on this device (created locally, possibly not yet on the server). */
+/** Readings of one nozzle on one leg. Liters with one decimal (numeric(14,1)). */
+export type LegReading = { nozzleId: string; label: string; productId: string; opening: number; closing?: number };
+
+/** «فترة على مضخة»: the part of the shift spent on one pump. */
+export type LocalLeg = {
+  legId: string;
+  pumpId: string;
+  pumpNumber: number;
+  startedAt: string;
+  endedAt?: string;
+  gapNote?: string;
+  readings: LegReading[];
+};
+
+/** The attendant's shift on this device (created locally, possibly not yet on the server). */
 export type LocalShift = {
   userId: string;
   shiftId: string;
   stationId: string;
-  pumpId: string;
-  pumpNumber: number;
   openedAt: string;
   openingCash: string;             // money as a string of digits, never a float
-  readings: { nozzleId: string; label: string; reading: number }[];
+  legs: LocalLeg[];                // in order; the last one without endedAt is the current pump
+  status: "open" | "submitted";
+  countedCash?: string;
+  diffReason?: string;
+  submittedAt?: string;
 };
+
+export function currentLeg(shift: LocalShift): LocalLeg | undefined {
+  const last = shift.legs.at(-1);
+  return last && !last.endedAt ? last : undefined;
+}
 
 class WorkerDb extends Dexie {
   device!: EntityTable<DeviceCredential, "key">;
@@ -72,6 +102,15 @@ class WorkerDb extends Dexie {
       outbox: "++seq, &id, status, userId",
       reference: "stationId",
       shift: "userId",
+    });
+    // v3: shifts are split into pump legs. Old cached shapes are dropped (dev data only; the outbox is kept).
+    this.version(3).stores({}).upgrade(async (tx) => {
+      await tx.table("reference").clear();
+      await tx.table("shift").clear();
+      // open_shift rows in the pre-legs format can never be accepted by the new RPC: keep them, cancelled.
+      await tx.table("outbox").toCollection()
+        .filter((r: OutboxRow) => r.rpc === "open_shift" && r.status !== "sent" && !("p_leg_id" in r.params))
+        .modify({ status: "cancelled", cancelledAt: new Date().toISOString(), lastError: "pre-legs format" });
     });
   }
 }

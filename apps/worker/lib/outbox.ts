@@ -68,20 +68,45 @@ async function run(): Promise<void> {
   if (!userId) return;
 
   const rows = await db.outbox.where("userId").equals(userId).sortBy("seq");
-  if (!rows.some((r) => r.status === "pending")) return;
-
-  setStatus({ syncing: true });
-  try {
-    for (const row of rows) {
-      if (row.status === "sent" || row.status === "cancelled") continue;
-      if (row.status === "failed_permanent") return;            // the queue stops at this row
-      const wait = row.nextAttemptAt ? Date.parse(row.nextAttemptAt) - Date.now() : 0;
-      if (wait > 0) return scheduleRetry(wait);
-      if (!(await send(row))) return;                           // later rows depend on this one
+  if (rows.some((r) => r.status === "pending")) {
+    setStatus({ syncing: true });
+    try {
+      await sendInOrder(rows);
+    } finally {
+      setStatus({ syncing: false });
     }
-    setStatus({ needsSignIn: false });
-  } finally {
-    setStatus({ syncing: false });
+  }
+  await reportDevice();
+}
+
+async function sendInOrder(rows: OutboxRow[]): Promise<void> {
+  for (const row of rows) {
+    if (row.status === "sent" || row.status === "cancelled") continue;
+    if (row.status === "failed_permanent") return;              // the queue stops at this row
+    const wait = row.nextAttemptAt ? Date.parse(row.nextAttemptAt) - Date.now() : 0;
+    if (wait > 0) return scheduleRetry(wait);
+    if (!(await send(row))) return;                             // later rows depend on this one
+  }
+  setStatus({ needsSignIn: false });
+}
+
+// ---------- device report (devices.pending_ops / last_sync_at, so the owner can spot a stuck device) ----------
+let lastReport: { pending: number; at: number } | undefined;
+const REPORT_EVERY_MS = 5 * 60_000;
+
+async function reportDevice(): Promise<void> {
+  try {
+    const device = await db.device.get("current");
+    if (!device) return;
+    // every attendant's unsent rows on this device
+    const pending = await db.outbox.filter((r) => r.status === "pending" || r.status === "failed_permanent").count();
+    if (lastReport && lastReport.pending === pending && Date.now() - lastReport.at < REPORT_EVERY_MS) return;
+    const { error } = await supabase()
+      .rpc("report_device_sync", { p_device: device.deviceId, p_pending: pending })
+      .abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS));
+    if (!error) lastReport = { pending, at: Date.now() };
+  } catch {
+    // best effort: never blocks the outbox
   }
 }
 
@@ -129,16 +154,26 @@ async function send(row: OutboxRow): Promise<boolean> {
 }
 
 /**
- * The server refused to open the shift (e.g. pump busy), so nothing exists on the server.
- * The row is kept as a record but marked cancelled, and the local shift is cleared.
+ * A refused row changed nothing on the server (the RPC rolled back), so the attendant may redo it.
+ * The refused row and every later row of the same shift are kept, marked cancelled, and the local
+ * shift is fixed by `fixLocal` in the same transaction:
+ *  - refused open_shift  → the local shift is removed, S1 starts again;
+ *  - refused submit_shift → the local shift is open again, the close wizard starts again.
+ * A refused switch_pump is NOT redone here: a pump taken by a colleague offline is a manager task (spec §7).
  */
-export async function cancelRefusedOpenShift(userId: string, shiftId: string): Promise<void> {
+export async function redoRefused(userId: string, rowId: string, fixLocal: () => Promise<void>): Promise<void> {
   await db.transaction("rw", db.outbox, db.shift, async () => {
-    const row = await db.outbox.where("id").equals(shiftId).first();
-    if (!row || row.rpc !== "open_shift" || row.status !== "failed_permanent" || row.userId !== userId) {
-      throw new Error("only a refused open_shift can be cancelled");
+    const row = await db.outbox.where("id").equals(rowId).first();
+    if (!row || row.userId !== userId || row.status !== "failed_permanent" || row.rpc === "switch_pump" || row.rpc === "record_sale") {
+      throw new Error("this row cannot be redone");
     }
-    await db.outbox.update(row.seq!, { status: "cancelled", cancelledAt: new Date().toISOString() });
-    await db.shift.delete(userId);
+    const shiftId = (row.params.p_shift_id ?? row.params.p_shift) as string;
+    const now = new Date().toISOString();
+    const later = await db.outbox.where("userId").equals(userId)
+      .filter((r) => r.seq! >= row.seq! && r.status !== "sent" && r.status !== "cancelled"
+        && (r.params.p_shift_id ?? r.params.p_shift) === shiftId)
+      .toArray();
+    for (const r of later) await db.outbox.update(r.seq!, { status: "cancelled", cancelledAt: now });
+    await fixLocal();
   });
 }

@@ -13,7 +13,7 @@ const withSerwist = withSerwistInit({
   disable: process.env.NODE_ENV === "development",
   // The pages handle `online` themselves; a reload would wipe a PIN or a half-entered sale.
   reloadOnOnline: false,
-  additionalPrecacheEntries: ["/", "/setup", "/shift/start", "/shift"].map((url) => ({ url, revision })),
+  additionalPrecacheEntries: ["/", "/setup", "/shift/start", "/shift", "/shift/move", "/shift/close", "/shift/done"].map((url) => ({ url, revision })),
 });
 
 const nextConfig: NextConfig = {
