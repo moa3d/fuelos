@@ -89,6 +89,6 @@ Use the `Number/*` styles for money and liters; they are the hero of every scree
 - **States:** ST1 Skeleton · ST2 Empty · ST3 Error · ST4 Permission
 
 ## Implementation notes
-- **All apps:** Next.js App Router + Tailwind. `packages/ui` exports a Tailwind preset generated from `design/tokens.json`, with the same names (`brand-primary`, `status-danger-50`, …); apps use it instead of raw hex. Load Cairo with `next/font/google`.
+- **All apps:** Next.js App Router + Tailwind. `packages/ui/src/theme.css` is the Tailwind v4 theme (our preset), generated from `design/tokens.json` by `npm run tokens`; apps `@import "@fuelos/ui/theme.css"` and use the token names (`bg-brand-primary`, `text-status-danger-700`, `text-number-hero-44`, `shadow-card`) instead of raw hex. Never edit `theme.css` by hand. Load Cairo with `next/font/google`.
 - **Numbers:** format with `Intl.NumberFormat('en-US')` so digits stay Latin (`1,250`); the helpers live in `packages/core`.
 - To change a token, update `design/figma-plugin/src/00-core.js` and rebuild the plugin (`build.sh`), then regenerate `design/tokens.json` so Figma and code stay in sync.

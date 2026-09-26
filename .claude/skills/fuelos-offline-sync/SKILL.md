@@ -61,12 +61,12 @@ The server is authoritative. For example, `record_sale` returns the server `unit
 | `FUELOS_PERMISSION_DENIED` / `42501` | «هذا الإجراء متاح لـ … فقط» | name the role that can do it |
 | `FUELOS_PENDING_APPROVALS` (owner) | «هناك عمليات آجل بانتظار قرارك في هذه المناوبة» | open O7 |
 | `FUELOS_PERIOD_CLOSED` (office) | «الفترة المحاسبية مغلقة — سجّل التسوية في الفترة الحالية» | |
-| `FUELOS_PIN_INVALID` (L2) | «الرمز غير صحيح — بقيت X محاولات» (X from `attempts_left`) | clear the dots |
+| `FUELOS_PIN_INVALID` (L2) | «الرمز غير صحيح — بقيت محاولة واحدة / محاولتان / X محاولات» (from `attempts_left`, Arabic plural) | clear the dots |
 | `FUELOS_PIN_LOCKED` (L2) | «تم إيقاف الدخول مؤقتاً حتى HH:MM» (from `locked_until`) | |
 | `FUELOS_PIN_NOT_SET` (L2) | «لم يُحدَّد لك رمز بعد — اطلب من صاحب المحطة» | |
 | `FUELOS_DEVICE_NOT_REGISTERED` (L2) | «هذا الجهاز غير مسجّل لمحطة — اطلب من المدير تسجيله» | show device setup |
-| `FUELOS_PIN_LOGIN_UNAVAILABLE` / `FUELOS_INTERNAL` (L2) | «تعذّر الدخول الآن — حاول بعد قليل» | log to Sentry |
-| network error (L2) | «لا يوجد اتصال — الدخول يحتاج إنترنت أول مرة» | retry |
+| `FUELOS_PIN_LOGIN_UNAVAILABLE` / `FUELOS_INTERNAL` (L2 only, `LOGIN_UNAVAILABLE_MESSAGE`) | «تعذّر الدخول الآن — حاول بعد قليل» | log to Sentry |
+| network error (L2 only, `LOGIN_NETWORK_MESSAGE`) | «لا يوجد اتصال — الدخول يحتاج إنترنت أول مرة» | retry |
 
 Keep the mapping in one shared place (`packages/core/src/errors.ts`, used by every app), with a fallback: «حدث خطأ غير متوقع — حاول مرة أخرى». Unknown codes go to Sentry.
 

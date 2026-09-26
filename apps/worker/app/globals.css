@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@import "@fuelos/ui/theme.css";
+
+/* workspace packages live outside this app; scan them for class names */
+@source "../../../packages/ui/src";
+
+html,
+body {
+  background: var(--color-surface-page);
+  color: var(--color-text-primary);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS notch / status bar: for full-bleed pages whose own padding sits on an inner element.
+   Pages with their own top padding use pt-[calc(env(safe-area-inset-top)+…)] instead. */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

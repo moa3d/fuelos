@@ -1,0 +1,17 @@
+{
+  "name": "fuelos",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/worker",
+    "build": "npm run build -w apps/worker",
+    "lint": "npm run lint -w apps/worker",
+    "tokens": "npm run tokens -w packages/ui"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

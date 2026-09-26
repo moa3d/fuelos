@@ -33,10 +33,20 @@ const STATUS: Record<string, number> = {
   FUELOS_INTERNAL: 500,
 };
 
+// CORS: the worker PWA (and later the Capacitor app) calls this from a browser. The request is
+// authenticated by the device secret in the JSON body, not by cookies or other ambient credentials,
+// so allowing any origin adds no exposure — and an origin allowlist would break new app domains.
+const CORS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400",
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
 
@@ -99,6 +109,8 @@ async function login(deviceId: string, secret: string, userId: string, pin: stri
 }
 
 Deno.serve(async (req) => {
+  // Browser preflight (the app sends `apikey` and `Content-Type: application/json`).
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return fail("FUELOS_BAD_REQUEST", { detail: "POST only" });
 
   let body: Record<string, unknown>;

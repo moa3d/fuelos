@@ -27,3 +27,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# worker PWA build output
+apps/worker/next-env.d.ts
+apps/worker/public/sw.js
+apps/worker/public/sw.js.map
+apps/worker/public/swe-worker-*.js
