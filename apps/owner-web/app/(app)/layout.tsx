@@ -17,7 +17,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/sales", label: "المبيعات والمناوبات", ready: true },
   { href: "/approvals", label: "الموافقات", ready: true },
   { href: "/tanks", label: "الخزانات والمخزون", ready: false },
-  { href: "/prices", label: "أسعار الوقود", ready: false },
+  { href: "/prices", label: "أسعار الوقود", ready: true },
   { href: "/ledger", label: "القيود المحاسبية", ready: false },
   { href: "/customers", label: "العملاء والديون", ready: false },
   { href: "/reports", label: "التقارير والتحليلات", ready: false },
