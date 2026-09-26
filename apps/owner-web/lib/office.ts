@@ -3,7 +3,9 @@
 import { supabase } from "./supabase";
 
 export type OfficeRole = "owner" | "accountant" | "shift_manager";
-export type Membership = { stationId: string; stationName: string; role: OfficeRole; displayName: string };
+export type Membership = { stationId: string; stationName: string; currencyLabel: string; role: OfficeRole; displayName: string };
+
+const CURRENCY_LABELS: Record<string, string> = { SYP: "ل.س" };
 
 export type OfficeAccess =
   | { kind: "office"; userId: string; memberships: Membership[] }
@@ -24,17 +26,18 @@ export async function officeAccess(): Promise<OfficeAccess> {
   if (!userId) return { kind: "signed-out" };
   const { data, error } = await supabase()
     .from("station_members")
-    .select("station_id, role, status, display_name, stations(name)")
+    .select("station_id, role, status, display_name, stations(name, currency_code)")
     .eq("user_id", userId)
     .eq("status", "active");
   if (error) return { kind: "error" };
   const rows = (data ?? []) as unknown as {
-    station_id: string; role: string; display_name: string; stations: { name: string } | null;
+    station_id: string; role: string; display_name: string; stations: { name: string; currency_code: string } | null;
   }[];
   const memberships = rows
     .filter((r) => r.role === "owner" || r.role === "accountant" || r.role === "shift_manager")
     .map((r) => ({
       stationId: r.station_id, stationName: r.stations?.name ?? "", role: r.role as OfficeRole, displayName: r.display_name,
+      currencyLabel: CURRENCY_LABELS[r.stations?.currency_code ?? ""] ?? r.stations?.currency_code ?? "",
     }));
   if (memberships.length > 0) return { kind: "office", userId, memberships };
   return rows.some((r) => r.role === "attendant") ? { kind: "attendant-only" } : { kind: "none" };
