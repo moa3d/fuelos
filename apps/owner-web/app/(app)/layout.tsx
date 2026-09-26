@@ -15,7 +15,7 @@ const STATION_KEY = "fuelos-office-station";
 const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/dashboard", label: "لوحة القيادة", ready: true },
   { href: "/sales", label: "المبيعات والمناوبات", ready: false },
-  { href: "/approvals", label: "الموافقات", ready: false },
+  { href: "/approvals", label: "الموافقات", ready: true },
   { href: "/tanks", label: "الخزانات والمخزون", ready: false },
   { href: "/prices", label: "أسعار الوقود", ready: false },
   { href: "/ledger", label: "القيود المحاسبية", ready: false },
@@ -35,6 +35,7 @@ export default function OfficeLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const [state, setState] = useState<State>({ status: "loading" });
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // turns the result of officeAccess() into the page state (runs in a promise callback, not in the effect body)
   const apply = useCallback(async (access: OfficeAccess) => {
@@ -58,6 +59,18 @@ export default function OfficeLayout({ children }: { children: React.ReactNode }
     });
     return () => data.subscription.unsubscribe();
   }, [apply, router]);
+
+  // the sidebar badge: requests waiting for a decision (refreshed when the page changes or the tab gets focus)
+  const readyStation = state.status === "ready" ? state.stationId : undefined;
+  useEffect(() => {
+    if (!readyStation) return;
+    const count = () => supabase().from("approval_requests").select("id", { count: "exact", head: true })
+      .eq("station_id", readyStation).eq("status", "pending")
+      .then(({ count: n, error }) => { if (!error) setPendingApprovals(n ?? 0); });
+    void count();
+    window.addEventListener("focus", count);
+    return () => window.removeEventListener("focus", count);
+  }, [readyStation, pathname]);
 
   function retry() {
     setState({ status: "loading" });
@@ -130,7 +143,11 @@ export default function OfficeLayout({ children }: { children: React.ReactNode }
                       <Link href={item.href} aria-current={active ? "page" : undefined}
                         className={cx("flex h-10 items-center rounded-md px-3 text-body-strong-14",
                           active ? "bg-brand-dark-700 text-text-on-dark" : "text-text-on-dark-muted hover:bg-brand-dark-800")}>
-                        {item.label}
+                        <span className="flex-1">{item.label}</span>
+                        {item.href === "/approvals" && pendingApprovals > 0 && (
+                          <span className="flex size-6 items-center justify-center rounded-full bg-status-warning text-label-11 text-brand-dark"
+                            aria-label={`${pendingApprovals} طلبات بانتظار القرار`}>{pendingApprovals}</span>
+                        )}
                       </Link>
                     ) : (
                       <span aria-disabled className="flex h-10 items-center justify-between rounded-md px-3 text-body-regular-14 text-text-on-dark-muted opacity-60">

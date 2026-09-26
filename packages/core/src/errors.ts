@@ -50,6 +50,7 @@ const messages: Record<string, (d: ErrorDetail) => string> = {
   FUELOS_REASON_REQUIRED: () => "الفرق أكبر من الحد المسموح — اكتب السبب",
   FUELOS_NO_PRICE: () => "لا يوجد سعر منشور لهذا الوقود — اتصل بالمدير",
   FUELOS_ID_CONFLICT: () => "تعذّر حفظ العملية — تواصل مع الدعم",
+  FUELOS_NOT_FOUND: () => "لم نجد هذا العنصر — ربما تغيّر، حدّث الصفحة وحاول مرة أخرى",
   FUELOS_PENDING_APPROVALS: () => "هناك عمليات آجل بانتظار قرارك في هذه المناوبة",
   FUELOS_PERIOD_CLOSED: () => "الفترة المحاسبية مغلقة — سجّل التسوية في الفترة الحالية",
 };
