@@ -27,9 +27,10 @@ erDiagram
   pumps ||--o{ nozzles : has
   tanks ||--o{ nozzles : feeds
   products ||--o{ prices : "price history"
-  pumps ||--o{ shifts : "one open at a time"
-  shifts ||--o{ shift_readings : "opening/closing per nozzle"
-  shifts ||--o{ sales : "recorded fills (card/credit/voucher/linked)"
+  shifts ||--|{ shift_legs : "one leg per pump worked; one open at a time"
+  pumps ||--o{ shift_legs : "one open leg per pump"
+  shift_legs ||--|{ leg_readings : "opening/closing per nozzle"
+  shift_legs ||--o{ sales : "recorded fills (card/credit/voucher/linked)"
   sales ||--o| invoices : "digital invoice"
   company_accounts ||--o{ sales : "credit fills"
   company_accounts ||--o{ company_drivers : authorizes
@@ -55,8 +56,9 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> open : open_shift (readings per nozzle)
-  open --> submitted : submit_shift (closing readings + counted cash)
+  [*] --> open : open_shift (first pump + readings per nozzle)
+  open --> open : switch_pump (close this pump's leg, open a leg on another pump)
+  open --> submitted : submit_shift (closing readings of the current pump + counted cash)
   reopened --> submitted : submit_shift
   submitted --> approved : decide_approval(approve) → ledger + stock + invoices + points
   submitted --> rejected : decide_approval(reject, note)
@@ -66,7 +68,9 @@ stateDiagram-v2
 
 **Cash formula (spec):**
 `expected_cash = opening_cash + meter_sales − card − credit − voucher`
-where `meter_sales = Σ (closing − opening) × price at shift open`. Cash fills are *not* recorded one by one: they come out of the meter.
+where `meter_sales = Σ legs Σ nozzles (closing − opening) × price at shift open`. Cash fills are *not* recorded one by one: they come out of the meter.
+A shift belongs to one attendant and his cash drawer; it is split into **legs**, one per pump he worked (`shift_legs`). He holds one pump at a time, a pump has one open leg at a time, and the cash is counted once, at the end.
+An opening reading above the nozzle's `last_reading` means liters nobody recorded: the leg needs a `gap_note`, and the liters are kept in `leg_readings.gap_liters` and shown in the approval payload.
 Card, credit and voucher fills must be recorded (`record_sale`), and a fill linked to a customer is recorded so it gets an invoice.
 If `|counted − expected| > stations.cash_tolerance` (default 1,000), a written reason is required.
 
@@ -75,7 +79,7 @@ If `|counted − expected| > stations.cash_tolerance` (default 1,000), a written
 | Event (RPC) | Debit | Credit | Notes |
 |---|---|---|---|
 | Fuel delivery with cost (`record_fuel_delivery`) | 1200 Fuel inventory | 2000 Suppliers | If there is no cost, only the stock moves, and profit shows as *estimated* |
-| Shift approved (`decide_approval`) | 1000 Cash (counted − opening), 1020 Card, 1100 Companies, 2100 Vouchers | 4000 Fuel sales (meter sales) | One balanced entry per shift |
+| Shift approved (`decide_approval`) | 1000 Cash (counted − opening), 1020 Card, 1100 Companies, 2100 Vouchers | 4000 Fuel sales (meter sales) | One balanced entry per shift, over all its legs; one stock movement per tank |
 | ↳ cash shortage | 5300 Cash shortage, or 1150 Employee receivable (option `shortage_to_employee`) | — | |
 | ↳ cash surplus | — | 4200 Cash overage | |
 | ↳ cost of fuel sold | 5000 COGS | 1200 Fuel inventory | Weighted average cost of priced deliveries; the description is tagged «(تكلفة غير مكتملة)» when a delivery has no cost |
@@ -94,7 +98,8 @@ Chart of accounts: 21 system accounts, created by `create_station_defaults`. See
 - The following tables are append-only: `audit_log`, `inventory_movements`, `loyalty_ledger`, `invoice_corrections`, `company_payments`, `tank_measurements`, `complaint_messages`.
 - `sales`: never deleted. Financial fields are frozen, so to change one you void it (with a reason) and record it again.
 - `invoices` are never deleted; they move through pending → confirmed / corrected / cancelled.
-- `shifts`: only the allowed transitions; one open shift per pump (`FUELOS_PUMP_BUSY`).
+- `shifts`: only the allowed transitions; one open shift per attendant (`FUELOS_SHIFT_ALREADY_OPEN`).
+- `shift_legs`: one open leg per pump (`FUELOS_PUMP_BUSY`) and per shift; never deleted. A sale's `leg_id` is frozen like its other financial fields.
 - Sensitive tables write to `audit_log` automatically: who, when, before, after and reason.
 
 ## 6. RPCs (what the apps call)
@@ -102,10 +107,12 @@ Chart of accounts: 21 system accounts, created by `create_station_defaults`. See
 | RPC | Who | Idempotent |
 |---|---|---|
 | `create_station(org, name, currency, city, display_name)` | any signed-in user (becomes owner) | — |
-| `open_shift(shift_id, pump, opening_cash, readings, device, client_created_at)` | attendant / manager / owner | ✅ client UUID |
-| `record_sale(sale_id, shift, nozzle, liters, unit_price, method, …, request_approval)` | shift's attendant, manager, owner | ✅ client UUID |
+| `open_shift(shift_id, leg_id, pump, opening_cash, readings, gap_note, device, client_created_at)` | attendant / manager / owner | ✅ client UUIDs |
+| `switch_pump(shift, new_leg_id, closing, new_pump, opening, gap_note, device, client_created_at)` | shift's attendant, manager, owner | ✅ client UUID |
+| `pump_board(station)` | station members | read (holder's display name only) |
+| `record_sale(sale_id, shift, leg, nozzle, liters, unit_price, method, …, request_approval)` | shift's attendant, manager, owner | ✅ client UUID |
 | `lookup_company_for_sale(station, qr_or_plate)` | attendant+ | read |
-| `shift_summary(shift)` | shift's attendant, staff | read |
+| `shift_summary(shift)` | shift's attendant, staff | read (totals + `tanks[]` + `legs[]`) |
 | `submit_shift(shift, closing, counted_cash, diff_reason)` | shift's attendant, manager, owner | — |
 | `decide_approval(request, approve, option, note)` | owner (stock: manager too) | — |
 | `reopen_shift(shift, reason)` | owner | — |
@@ -113,13 +120,14 @@ Chart of accounts: 21 system accounts, created by `create_station_defaults`. See
 | `record_fuel_delivery(...)`, `record_tank_measurement(tank, measured_l)` | manager / owner (+accountant for deliveries) | — |
 | `post_expense(expense)`, `record_company_payment(...)`, `reverse_journal_entry(entry, reason)` | owner / accountant | — |
 | `close_period(period)` / `open_next_period(station)` | owner / owner+accountant | — |
+| `report_device_sync(device, pending)` | members of the device's station | — |
 
 ## 7. Error codes
 
 Errors come back as `SQLSTATE P0001` (or `42501` for permissions), with a stable code in `message`.
 The apps map each code to Arabic text (see `.claude/skills/fuelos-offline-sync`). The user never sees the raw code.
 
-`FUELOS_PERMISSION_DENIED` · `FUELOS_NOT_FOUND` · `FUELOS_REQUIRED` · `FUELOS_REASON_REQUIRED` · `FUELOS_PUMP_BUSY` · `FUELOS_READING_MISSING` · `FUELOS_READING_BELOW_LAST` · `FUELOS_SHIFT_NOT_OPEN` · `FUELOS_SHIFT_INCOMPLETE` · `FUELOS_BAD_SHIFT_TRANSITION` · `FUELOS_PENDING_APPROVALS` · `FUELOS_NO_PRICE` · `FUELOS_CREDIT_LIMIT` (detail: `{remaining, possible_liters}`) · `FUELOS_COMPANY_FROZEN` · `FUELOS_COMPANY_SUSPENDED` · `FUELOS_DRIVER_NOT_AUTHORIZED` · `FUELOS_ID_CONFLICT` · `FUELOS_UNBALANCED_ENTRY` · `FUELOS_POSTED_IMMUTABLE` · `FUELOS_POST_VIA_UPDATE` · `FUELOS_PERIOD_CLOSED` · `FUELOS_DRAFTS_BLOCK_CLOSE` · `FUELOS_UNKNOWN_ACCOUNT` · `FUELOS_APPEND_ONLY` · `FUELOS_SALE_FROZEN` · `FUELOS_INVOICE_FROZEN` · `FUELOS_PIN_FORMAT` · `FUELOS_PIN_INVALID` (detail: `attempts_left`) · `FUELOS_PIN_LOCKED` (detail: `locked_until`) · `FUELOS_PIN_NOT_SET` · `FUELOS_DEVICE_NOT_REGISTERED` · `FUELOS_PIN_LOGIN_UNAVAILABLE`
+`FUELOS_PERMISSION_DENIED` · `FUELOS_NOT_FOUND` · `FUELOS_REQUIRED` · `FUELOS_REASON_REQUIRED` · `FUELOS_PUMP_BUSY` · `FUELOS_SHIFT_ALREADY_OPEN` · `FUELOS_GAP_NOTE_REQUIRED` · `FUELOS_READING_ABOVE_NEXT` · `FUELOS_BAD_REQUEST` · `FUELOS_READING_MISSING` · `FUELOS_READING_BELOW_LAST` · `FUELOS_SHIFT_NOT_OPEN` · `FUELOS_SHIFT_INCOMPLETE` · `FUELOS_BAD_SHIFT_TRANSITION` · `FUELOS_PENDING_APPROVALS` · `FUELOS_NO_PRICE` · `FUELOS_CREDIT_LIMIT` (detail: `{remaining, possible_liters}`) · `FUELOS_COMPANY_FROZEN` · `FUELOS_COMPANY_SUSPENDED` · `FUELOS_DRIVER_NOT_AUTHORIZED` · `FUELOS_ID_CONFLICT` · `FUELOS_UNBALANCED_ENTRY` · `FUELOS_POSTED_IMMUTABLE` · `FUELOS_POST_VIA_UPDATE` · `FUELOS_PERIOD_CLOSED` · `FUELOS_DRAFTS_BLOCK_CLOSE` · `FUELOS_UNKNOWN_ACCOUNT` · `FUELOS_APPEND_ONLY` · `FUELOS_SALE_FROZEN` · `FUELOS_INVOICE_FROZEN` · `FUELOS_PIN_FORMAT` · `FUELOS_PIN_INVALID` (detail: `attempts_left`) · `FUELOS_PIN_LOCKED` (detail: `locked_until`) · `FUELOS_PIN_NOT_SET` · `FUELOS_DEVICE_NOT_REGISTERED` · `FUELOS_PIN_LOGIN_UNAVAILABLE`
 
 ## 8. Known simplifications (decide before production)
 

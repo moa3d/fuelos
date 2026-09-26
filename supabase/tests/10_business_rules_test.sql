@@ -46,7 +46,8 @@ select '11111111-0000-4000-8000-000000000001' as owner, '11111111-0000-4000-8000
        '11111111-0000-4000-8000-000000000003' as mgr,   '11111111-0000-4000-8000-000000000004' as khaled,
        '11111111-0000-4000-8000-000000000005' as mohamad, '11111111-0000-4000-8000-000000000006' as rana,
        '11111111-0000-4000-8000-000000000007' as admin,
-       '22222222-0000-4000-8000-00000000000a' as shift_a, '22222222-0000-4000-8000-00000000000b' as shift_b \gset
+       '22222222-0000-4000-8000-00000000000a' as shift_a, '22222222-0000-4000-8000-00000000000b' as shift_b,
+       '77777777-0000-4000-8000-00000000000b' as leg_b \gset
 select id as pump1 from pumps where station_id = :'station' and number = 1 \gset
 select id as pump3 from pumps where station_id = :'station' and number = 3 \gset
 select id as pump4 from pumps where station_id = :'station' and number = 4 \gset
@@ -116,40 +117,40 @@ select pg_temp.throws($$delete from invoices$$, 'FUELOS_APPEND_ONLY', 'invoices 
 -- 3. Shift rules (worker app)
 -- =====================================================================
 select pg_temp.act_as(:'mohamad');
-select pg_temp.throws(format('select open_shift(gen_random_uuid(), %L, 0, %L::jsonb)', :'pump1',
+select pg_temp.throws(format('select open_shift(gen_random_uuid(), gen_random_uuid(), %L, 0, %L::jsonb)', :'pump1',
                              json_build_array(json_build_object('nozzle_id', :'n1a', 'opening_reading', 99999),
                                               json_build_object('nozzle_id', :'n1b', 'opening_reading', 150000))),
                       'FUELOS_PUMP_BUSY', 'two open shifts on one pump are refused');
-select pg_temp.throws(format('select open_shift(gen_random_uuid(), %L, 0, %L::jsonb)', :'pump4',
+select pg_temp.throws(format('select open_shift(gen_random_uuid(), gen_random_uuid(), %L, 0, %L::jsonb)', :'pump4',
                              json_build_array(json_build_object('nozzle_id', :'n4', 'opening_reading', :'n4_last'::numeric - 10))),
                       'FUELOS_READING_BELOW_LAST', 'opening reading below the last closing reading is refused');
-select pg_temp.throws(format('select open_shift(gen_random_uuid(), %L, 0, %L::jsonb)', :'pump4', '[]'),
+select pg_temp.throws(format('select open_shift(gen_random_uuid(), gen_random_uuid(), %L, 0, %L::jsonb)', :'pump4', '[]'),
                       'FUELOS_READING_MISSING', 'every nozzle needs an opening reading');
 
 -- idempotent offline replay
 select pg_temp.act_as(:'khaled');
-select record_sale('55555555-0000-4000-8000-000000000001', :'shift_b', :'n1a', 10, 110, 'card');
-select record_sale('55555555-0000-4000-8000-000000000001', :'shift_b', :'n1a', 10, 110, 'card') ->> 'replayed' as replayed \gset
+select record_sale('55555555-0000-4000-8000-000000000001', :'shift_b', :'leg_b', :'n1a', 10, 110, 'card');
+select record_sale('55555555-0000-4000-8000-000000000001', :'shift_b', :'leg_b', :'n1a', 10, 110, 'card') ->> 'replayed' as replayed \gset
 select pg_temp.ok(:'replayed' = 'true', 'replaying the same sale id is a no-op');
 select pg_temp.ok((select count(*) = 1 from sales where id = '55555555-0000-4000-8000-000000000001'), 'no duplicate sale after replay');
-select pg_temp.ok((select (record_sale(gen_random_uuid(), :'shift_b', :'n1a', 5, 999, 'card') ->> 'unit_price')::numeric = 110),
+select pg_temp.ok((select (record_sale(gen_random_uuid(), :'shift_b', :'leg_b', :'n1a', 5, 999, 'card') ->> 'unit_price')::numeric = 110),
                   'server price wins over a stale device price');
-select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, 5, 110, %L)', :'shift_b', :'n3', 'card'),
+select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, %L, 5, 110, %L)', :'shift_b', :'leg_b', :'n3', 'card'),
                       'FUELOS_NOT_FOUND', 'a nozzle from another pump is refused');
 select pg_temp.act_as(:'mohamad');
-select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, 5, 110, %L)', :'shift_b', :'n1a', 'card'),
+select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, %L, 5, 110, %L)', :'shift_b', :'leg_b', :'n1a', 'card'),
                       '42501', 'an attendant cannot record sales on a colleague''s shift');
 
 -- company credit
 select pg_temp.act_as(:'khaled');
 update company_accounts set credit_limit = 10000 where id = :'company';          -- balance 2,500 => remaining 7,500
-select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, 100, 110, %L, p_company := %L)', :'shift_b', :'n1a', 'credit', :'company'),
+select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, %L, 100, 110, %L, p_company := %L)', :'shift_b', :'leg_b', :'n1a', 'credit', :'company'),
                       'FUELOS_CREDIT_LIMIT', 'credit sale above the remaining limit is refused');
 update company_accounts set status = 'frozen' where id = :'company';
-select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, 5, 110, %L, p_company := %L)', :'shift_b', :'n1a', 'credit', :'company'),
+select pg_temp.throws(format('select record_sale(gen_random_uuid(), %L, %L, %L, 5, 110, %L, p_company := %L)', :'shift_b', :'leg_b', :'n1a', 'credit', :'company'),
                       'FUELOS_COMPANY_FROZEN', 'frozen company cannot buy on credit');
 update company_accounts set status = 'active' where id = :'company';
-select record_sale('55555555-0000-4000-8000-000000000002', :'shift_b', :'n1a', 100, 110, 'credit',
+select record_sale('55555555-0000-4000-8000-000000000002', :'shift_b', :'leg_b', :'n1a', 100, 110, 'credit',
                    p_company := :'company', p_request_approval := true) ->> 'status' as over_status \gset
 select pg_temp.ok(:'over_status' = 'pending_approval', 'over-limit sale can wait for the owner''s approval');
 
@@ -237,8 +238,8 @@ select pg_temp.ok((select count(*) = 0 from audit_log), 'attendant: no audit log
 select pg_temp.ok((select count(*) = 1 from shifts), 'attendant: only own shift');
 select pg_temp.ok((select bool_and(created_by = :'khaled') from sales), 'attendant: only own sales');
 select pg_temp.ok((select count(*) = 3 from prices), 'attendant: sees prices');
-select pg_temp.throws(format('insert into sales (id, station_id, shift_id, nozzle_id, liters, unit_price, amount, payment_method, created_by, client_created_at) values (gen_random_uuid(), %L, %L, %L, 1, 1, 1, %L, %L, now())',
-                             :'station', :'shift_b', :'n1a', 'cash', :'khaled'), '42501', 'attendant: no direct writes (RPC only)');
+select pg_temp.throws(format('insert into sales (id, station_id, shift_id, leg_id, nozzle_id, liters, unit_price, amount, payment_method, created_by, client_created_at) values (gen_random_uuid(), %L, %L, %L, %L, 1, 1, 1, %L, %L, now())',
+                             :'station', :'shift_b', :'leg_b', :'n1a', 'cash', :'khaled'), '42501', 'attendant: no direct writes (RPC only)');
 select pg_temp.throws(format('select publish_price(%L, %L, 1)', :'station', :'p95'), '42501', 'attendant: cannot publish prices');
 select pg_temp.throws($$select post_entry(null, null, null, null, null, '[]')$$, '42501', 'internal ledger helper is not callable');
 

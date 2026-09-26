@@ -69,8 +69,6 @@ declare
   v_sup uuid; v_company uuid; v_driver uuid; v_truck uuid; v_rana_car uuid;
   v_shift_a uuid := '22222222-0000-4000-8000-00000000000a';
   v_shift_b uuid := '22222222-0000-4000-8000-00000000000b';
-  v_leg_a   uuid := '77777777-0000-4000-8000-00000000000a';   -- each shift starts with one leg (pump) — see shift_legs
-  v_leg_b   uuid := '77777777-0000-4000-8000-00000000000b';
   v_req uuid; v_exp uuid; v_opened timestamptz := date_trunc('day', now()) - interval '1 day' + interval '6 hours';
 begin
   -- station (the owner onboards it through the same RPC as the web app)
@@ -137,14 +135,14 @@ begin
 
   -- ---------- shift A (yesterday, pump 3, محمد خليل): sales -> submit -> owner approves ----------
   perform pg_temp.act_as(u_mohamad);
-  perform open_shift(v_shift_a, v_leg_a, pump3, 5000, jsonb_build_array(jsonb_build_object('nozzle_id', n3, 'opening_reading', 184220.5)),
-                     null, 'demo-tablet-01', v_opened);
-  perform record_sale('33333333-0000-4000-8000-000000000001', v_shift_a, v_leg_a, n3, 20, 125, 'card',
+  perform open_shift(v_shift_a, pump3, 5000, jsonb_build_array(jsonb_build_object('nozzle_id', n3, 'opening_reading', 184220.5)),
+                     'demo-tablet-01', v_opened);
+  perform record_sale('33333333-0000-4000-8000-000000000001', v_shift_a, n3, 20, 125, 'card',
                       p_device := 'demo-tablet-01', p_client_created_at := v_opened + interval '1 hour');
-  perform record_sale('33333333-0000-4000-8000-000000000002', v_shift_a, v_leg_a, n3, 60, 125, 'credit',
+  perform record_sale('33333333-0000-4000-8000-000000000002', v_shift_a, n3, 60, 125, 'credit',
                       p_company := v_company, p_driver := v_driver, p_vehicle := v_truck, p_odometer := 214300,
                       p_device := 'demo-tablet-01', p_client_created_at := v_opened + interval '3 hours');
-  perform record_sale('33333333-0000-4000-8000-000000000003', v_shift_a, v_leg_a, n3, 30, 125, 'cash',
+  perform record_sale('33333333-0000-4000-8000-000000000003', v_shift_a, n3, 30, 125, 'cash',
                       p_customer := u_rana, p_vehicle := v_rana_car,
                       p_device := 'demo-tablet-01', p_client_created_at := v_opened + interval '5 hours');
   -- 1,250 L x 125 = 156,250; expected cash = 5,000 + 156,250 - 2,500 card - 7,500 credit = 151,250; counted 150,750 (-500, within tolerance)
@@ -155,11 +153,11 @@ begin
 
   -- ---------- shift B (today, pump 1, خالد العمر): still open ----------
   perform pg_temp.act_as(u_khaled);
-  perform open_shift(v_shift_b, v_leg_b, pump1, 5000,
+  perform open_shift(v_shift_b, pump1, 5000,
                      jsonb_build_array(jsonb_build_object('nozzle_id', n1a, 'opening_reading', 98410.0),
                                        jsonb_build_object('nozzle_id', n1b, 'opening_reading', 143002.5)),
-                     null, 'demo-phone-390', date_trunc('day', now()) + interval '6 hours');
-  perform record_sale('33333333-0000-4000-8000-000000000004', v_shift_b, v_leg_b, n1a, 25, 110, 'card',
+                     'demo-phone-390', date_trunc('day', now()) + interval '6 hours');
+  perform record_sale('33333333-0000-4000-8000-000000000004', v_shift_b, n1a, 25, 110, 'card',
                       p_device := 'demo-phone-390', p_client_created_at := date_trunc('day', now()) + interval '7 hours');
 
   -- ---------- back office ----------

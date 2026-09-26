@@ -33,7 +33,10 @@ select pg_temp.ok((select count(*) = 1 from device_credentials where device_id =
 select pg_temp.throws(format('select set_member_pin(%L, %L, %L)', :'station', :'khaled', '12a4'), 'FUELOS_PIN_FORMAT', 'PIN must be 4-6 digits');
 select set_member_pin(:'station', :'khaled', '4821');
 select pg_temp.ok((select pin_hash like '$2%' from member_pins where user_id = :'khaled'), 'PIN stored as bcrypt hash');
-select pg_temp.ok((select count(*) = 0 from audit_log where after::text like '%4821%' or before::text like '%4821%'), 'PIN never written to audit log');
+-- compare whole values: a substring match also hits random UUIDs such as …d7ab4821282d (flaky)
+select pg_temp.ok((select count(*) = 0 from audit_log a,
+                          jsonb_each_text(coalesce(a.after, '{}'::jsonb) || coalesce(a.before, '{}'::jsonb)) kv
+                    where kv.value = '4821'), 'PIN never written to audit log');
 
 -- permissions
 select pg_temp.act_as(:'acct');
