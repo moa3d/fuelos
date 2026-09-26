@@ -2,11 +2,13 @@
   "name": "@fuelos/worker",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test \"lib/*.test.ts\""
   },
   "dependencies": {
     "@fuelos/core": "*",

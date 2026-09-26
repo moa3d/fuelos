@@ -21,6 +21,9 @@ The spec says stations have no new hardware and the internet drops. The worker a
   - `status` (`pending` | `sent` | `failed_permanent`)
 - **Client-generated UUID v4** for every shift and sale, created **before** the first attempt and never regenerated. The server RPCs are idempotent on that id: replaying `record_sale` with the same id returns `{"replayed": true}`, and replaying `open_shift` returns the same shift.
 - Send in **FIFO order**, one at a time. `record_sale` depends on its `open_shift`, and `submit_shift` depends on all its sales.
+- **Each row belongs to the attendant who created it** (`userId`) and is sent only with that attendant's session: `open_shift` uses `auth.uid()`, so another attendant's session would take the shift. After «تبديل العامل» the rows wait until their owner signs in again (the header warns before switching).
+- A row the server refused stays `failed_permanent` and **stops the queue**. The only row that may be marked `cancelled` is a refused `open_shift` (nothing was created on the server); the attendant then starts again. Rows are never deleted.
+- Implementation: `apps/worker/lib/outbox.ts` (engine), `lib/outbox-policy.ts` (pure rules, unit-tested with `npm test`), `app/sync-runner.tsx` (triggers).
 - Keep `client_created_at` (device time) in the params. The server keeps both that and `received_at`.
 
 ## Limits & UI

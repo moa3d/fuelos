@@ -9,7 +9,8 @@
     "dev": "npm run dev -w apps/worker",
     "build": "npm run build -w apps/worker",
     "lint": "npm run lint -w apps/worker",
-    "tokens": "npm run tokens -w packages/ui"
+    "tokens": "npm run tokens -w packages/ui",
+    "test": "npm run test -w apps/worker"
   },
   "engines": {
     "node": ">=20"

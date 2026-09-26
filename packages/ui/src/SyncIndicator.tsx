@@ -8,10 +8,18 @@ const styles: Record<SyncState, { box: string; dot: string; label: string }> = {
   syncing: { box: "bg-status-info-50 text-status-info-700", dot: "bg-status-info animate-pulse", label: "جارٍ المزامنة" },
 };
 
+/** «عملية واحدة» / «عمليتان» / «3 عمليات» / «11 عملية» (Arabic number agreement). */
+export function operationsText(n: number): string {
+  if (n === 1) return "عملية واحدة";
+  if (n === 2) return "عمليتان";
+  if (n >= 3 && n <= 10) return `${n} عمليات`;
+  return `${n} عملية`;
+}
+
 /** Always visible in the worker app header. `pending` = operations waiting in the outbox. */
 export function SyncIndicator({ state, pending = 0, className }: { state: SyncState; pending?: number; className?: string }) {
   const s = styles[state];
-  const waiting = pending > 0 ? `${pending} عمليات بانتظار المزامنة` : null;
+  const waiting = pending > 0 ? `${operationsText(pending)} بانتظار المزامنة` : null;
   const detail =
     state === "offline" ? ["محفوظ على الجهاز", waiting].filter(Boolean).join(" · ")
     : state === "online" && !waiting ? "تمت المزامنة"

@@ -7,7 +7,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { db, getDevice, type DeviceCredential } from "@/lib/db";
-import { fetchRoster, NetworkError, pinLogin, type Roster, type RosterMember } from "@/lib/pin-login";
+import { initials, shortName } from "@/lib/names";
+import { fetchRoster, NetworkError, pinLogin, type Roster } from "@/lib/pin-login";
 import { supabase } from "@/lib/supabase";
 import { useOnline } from "@/lib/use-online";
 
@@ -198,7 +199,7 @@ export default function PinLoginPage() {
                           {initials(m.display_name)}
                         </span>
                         <span className={cx("text-center text-body-strong-14", active ? "text-text-on-dark" : "text-text-on-dark-muted")}>
-                          {shortName(m, state.roster.members)}
+                          {shortName(m.display_name, state.roster.members.map((o) => o.display_name))}
                         </span>
                       </button>
                     </li>
@@ -282,22 +283,6 @@ function RosterSkeleton() {
       </div>
     </div>
   );
-}
-
-const words = (name: string) => name.trim().split(/\s+/);
-
-/** «أحمد سالم» → «أس», «خالد العمر» → «خع» (skips the «ال» article). */
-function initials(name: string): string {
-  return words(name).slice(0, 2)
-    .map((w) => (w.startsWith("ال") && w.length > 2 ? w.slice(2) : w)[0])
-    .join("");
-}
-
-/** First name, or the full name when someone else on the roster shares it. */
-function shortName(m: RosterMember, all: RosterMember[]): string {
-  const first = words(m.display_name)[0];
-  const shared = all.some((o) => o.user_id !== m.user_id && words(o.display_name)[0] === first);
-  return shared ? m.display_name : first;
 }
 
 function PumpIcon() {
