@@ -11,6 +11,7 @@ import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox
 import { parseCash } from "@/lib/reading";
 import { findOpenShiftOnServer, loadReference, patchBoard } from "@/lib/reference";
 import { signedInMember } from "@/lib/session";
+import { routeFor } from "@/lib/shift-merge";
 import { newId } from "@/lib/uuid";
 import { CheckIcon, MeterPhotoCard, OpeningReadings, PumpGrid, StickyAction } from "../../shift-parts";
 import { WorkerHeader } from "../../worker-header";
@@ -56,7 +57,7 @@ export default function ShiftStartPage() {
       const m = await signedInMember();
       if (!m) return router.replace("/");
       const local = await db.shift.get(m.userId).catch(() => undefined);
-      if (local) return router.replace(local.status === "submitted" ? "/shift/done" : "/shift");
+      if (local) return router.replace(routeFor(local));
       setMe(m);
       await load(m);
     })();

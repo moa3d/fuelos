@@ -5,13 +5,14 @@ import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
 import { AlertBanner, Button, cx, StatusBadge } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { db, type CurrentMember, type LocalShift, type StationRef } from "@/lib/db";
+import { db, type CurrentMember, type StationRef } from "@/lib/db";
 import { centsToString, toCents } from "@/lib/money";
 import { litersToTenths } from "@/lib/reading";
 import { signedInMember } from "@/lib/session";
+import { routeFor } from "@/lib/shift-merge";
 import { shiftTotals } from "@/lib/shift-math";
 import { signOutLocally, supabase } from "@/lib/supabase";
-import { useOutbox } from "@/lib/use-sync";
+import { useLiveShift, useOutbox } from "@/lib/use-sync";
 import { liters } from "../../shift-parts";
 import { WorkerHeader } from "../../worker-header";
 
@@ -20,10 +21,11 @@ type ServerSummary = { liters: number; meter_sales: number; cash_diff: number | 
 export default function ShiftDonePage() {
   const router = useRouter();
   const [me, setMe] = useState<CurrentMember>();
-  const [shift, setShift] = useState<LocalShift>();
   const [ref, setRef] = useState<StationRef>();
   const [server, setServer] = useState<ServerSummary>();
   const outbox = useOutbox(me?.userId);
+  // live: the owner's decision is reconciled from the server into this shift (lib/shift-sync.ts)
+  const { shift, loaded } = useLiveShift(me?.userId);
 
   useEffect(() => {
     (async () => {
@@ -31,12 +33,17 @@ export default function ShiftDonePage() {
       if (!m) return router.replace("/");
       const local = await db.shift.get(m.userId).catch(() => undefined);
       if (!local) return router.replace("/shift/start");
-      if (local.status !== "submitted") return router.replace("/shift");
+      if (local.status === "open") return router.replace(routeFor(local));
       setRef(await db.reference.get(m.stationId).catch(() => undefined));
       setMe(m);
-      setShift(local);
     })();
   }, [router]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (!shift) router.replace("/shift/start");
+    else if (shift.status === "open") router.replace(routeFor(shift));   // the owner returned the close
+  }, [loaded, shift, router]);
 
   const submitRow = shift
     ? [...outbox.byId.values()].find((r) => r.rpc === "submit_shift" && r.params.p_shift === shift.shiftId && r.status !== "cancelled")
@@ -70,7 +77,8 @@ export default function ShiftDonePage() {
 
   async function finish() {
     if (!me) return;
-    if (sent) await db.shift.delete(me.userId).catch(() => undefined);   // keep it while the close is unsent
+    // keep it while the close is unsent; once the server knows (or decided) it is only history
+    if (sent || shift?.status === "approved" || shift?.status === "rejected") await db.shift.delete(me.userId).catch(() => undefined);
     await signOutLocally();
     await db.member.delete("current").catch(() => undefined);
     router.replace("/");
@@ -86,8 +94,14 @@ export default function ShiftDonePage() {
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
           </span>
         </span>
-        <h1 className="text-heading-h1-24">{sent ? "تم إرسال الإغلاق" : "تم حفظ الإغلاق على الجهاز"}</h1>
-        <StatusBadge tone="warning">{sent ? "بانتظار اعتماد صاحب المحطة" : "بانتظار المزامنة"}</StatusBadge>
+        <h1 className="text-heading-h1-24">
+          {shift.status === "approved" ? "اعتمد صاحب المحطة الإغلاق"
+            : shift.status === "rejected" ? "لم يُعتمد الإغلاق"
+            : sent ? "تم إرسال الإغلاق" : "تم حفظ الإغلاق على الجهاز"}
+        </h1>
+        {shift.status === "approved" ? <StatusBadge tone="success">معتمدة</StatusBadge>
+          : shift.status === "rejected" ? <StatusBadge tone="danger">مرفوض</StatusBadge>
+          : <StatusBadge tone="warning">{sent ? "بانتظار اعتماد صاحب المحطة" : "بانتظار المزامنة"}</StatusBadge>}
 
         <section className="w-full rounded-lg bg-surface-card p-4 text-start shadow-card">
           {!server && <div className="mb-2 flex justify-end"><StatusBadge tone="info">تقديري</StatusBadge></div>}
@@ -108,13 +122,22 @@ export default function ShiftDonePage() {
           {shift.diffReason && <p className="mt-2 text-body-small-12 text-brand-action-700">✓ السبب مرفق</p>}
         </section>
 
-        {!sent && (
+        {shift.status === "rejected" && (
+          <AlertBanner tone="danger" className="w-full text-start" title="رفض صاحب المحطة الإغلاق">
+            {shift.decisionNote ? `السبب: «${shift.decisionNote}». ` : ""}سيعيد فتح المناوبة لتصحيحها، أو يتواصل معك.
+          </AlertBanner>
+        )}
+        {shift.status === "approved" && shift.decisionNote && (
+          <AlertBanner tone="success" className="w-full text-start" title="ملاحظة صاحب المحطة">«{shift.decisionNote}»</AlertBanner>
+        )}
+        {shift.status === "submitted" && !sent && (
           <AlertBanner tone="info" className="w-full text-start" title="الإغلاق محفوظ على هذا الجهاز ولم يُرسل بعد">
             يُرسل تلقائياً عند الاتصال. إن ضغطت «تم» قبل ذلك، يُرسل عندما تدخل برمزك مرة أخرى.
           </AlertBanner>
         )}
         <p className="flex w-full items-center gap-2 rounded-md bg-surface-muted p-3 text-start text-body-small-12 text-text-secondary">
-          المناوبة مقفلة. أي تعديل يحتاج طلب فتح من المدير.
+          {shift.status === "rejected" ? "بعد أن يعيد المالك فتح المناوبة تظهر هنا تلقائياً عند دخولك."
+            : "المناوبة مقفلة. أي تعديل يحتاج طلب فتح من المدير."}
         </p>
       </main>
 

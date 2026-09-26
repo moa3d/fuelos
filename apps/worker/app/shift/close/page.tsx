@@ -44,7 +44,7 @@ export default function CloseShiftPage() {
       if (!m) return router.replace("/");
       const local = await db.shift.get(m.userId).catch(() => undefined);
       if (!local) return router.replace("/shift/start");
-      if (local.status === "submitted") return router.replace("/shift/done");
+      if (local.status !== "open") return router.replace("/shift/done");
       if (!currentLeg(local)) return router.replace("/shift");
       setRef(await db.reference.get(m.stationId).catch(() => undefined));
       setMe(m);
@@ -107,6 +107,7 @@ export default function CloseShiftPage() {
       };
       const next: LocalShift = {
         ...shift, status: "submitted", countedCash: countedValue, diffReason: reason.trim() || undefined, submittedAt: at,
+      returnedNote: undefined,
         legs: [
           ...shift.legs.slice(0, -1),
           { ...leg, endedAt: at, readings: leg.readings.map((r) => ({ ...r, closing: typed.get(r.nozzleId)! / 10 })) },

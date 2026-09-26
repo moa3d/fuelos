@@ -2,7 +2,7 @@
 import type { SyncState } from "@fuelos/ui";
 import { liveQuery } from "dexie";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { db, type OutboxRow } from "./db";
+import { db, type LocalShift, type OutboxRow } from "./db";
 import { getEngineStatus, subscribeEngine } from "./outbox";
 import { useOnline } from "./use-online";
 
@@ -39,4 +39,18 @@ export function useSyncState(): { state: SyncState; needsSignIn: boolean } {
   const online = useOnline();
   const engine = useSyncExternalStore(subscribeEngine, getEngineStatus, getEngineStatus);
   return { state: engine.syncing ? "syncing" : online ? "online" : "offline", needsSignIn: engine.needsSignIn };
+}
+
+/** The attendant's shift on this device, live: it changes when the owner's decision is reconciled from the server. */
+export function useLiveShift(userId: string | undefined): { shift: LocalShift | undefined; loaded: boolean } {
+  const [state, setState] = useState<{ shift: LocalShift | undefined; loaded: boolean }>({ shift: undefined, loaded: false });
+  useEffect(() => {
+    if (!userId) return;
+    const sub = liveQuery(() => db.shift.get(userId)).subscribe({
+      next: (shift) => setState({ shift, loaded: true }),
+      error: () => setState({ shift: undefined, loaded: true }),
+    });
+    return () => sub.unsubscribe();
+  }, [userId]);
+  return state;
 }

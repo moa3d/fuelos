@@ -6,16 +6,17 @@ import { formatMoney, formatNumber } from "@fuelos/core";
 import { AlertBanner, Button, cx, operationsText, StatusBadge } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { currentLeg, db, getDevice, type CurrentMember, type LocalShift, type StationRef } from "@/lib/db";
+import { currentLeg, db, getDevice, type CurrentMember, type StationRef } from "@/lib/db";
 import { centsToString, toCents } from "@/lib/money";
 import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
 import { parseCash } from "@/lib/reading";
 import { amountFromLiters, litersFromAmount, milliToString, parseLitersMilli } from "@/lib/sale-math";
 import { salesOfShift, type PaymentMethod } from "@/lib/sales";
 import { signedInMember } from "@/lib/session";
+import { routeFor } from "@/lib/shift-merge";
 import { priceAt } from "@/lib/shift-math";
 import { useOnline } from "@/lib/use-online";
-import { useOutbox } from "@/lib/use-sync";
+import { useLiveShift, useOutbox } from "@/lib/use-sync";
 import { newId } from "@/lib/uuid";
 import { CheckIcon, StickyAction } from "../shift-parts";
 import { SavedSale } from "../saved-sale";
@@ -33,7 +34,6 @@ const METHODS: { id: PaymentMethod; label: string; icon: ReactNode; soon?: strin
 export default function QuickFillPage() {
   const router = useRouter();
   const [me, setMe] = useState<CurrentMember>();
-  const [shift, setShift] = useState<LocalShift>();
   const [ref, setRef] = useState<StationRef>();
   const [now] = useState(() => Date.now());
   const [mode, setMode] = useState<Mode>("amount");
@@ -47,6 +47,8 @@ export default function QuickFillPage() {
   const busy = useRef(false);
   const outbox = useOutbox(me?.userId);
   const online = useOnline();
+  // live: when the owner returns or decides the close, the device learns it (lib/shift-sync.ts) and this follows
+  const { shift, loaded } = useLiveShift(me?.userId);
 
   useEffect(() => {
     (async () => {
@@ -54,13 +56,18 @@ export default function QuickFillPage() {
       if (!m) return router.replace("/");
       const local = await db.shift.get(m.userId).catch(() => undefined);
       if (!local) return router.replace("/shift/start");
-      if (local.status === "submitted") return router.replace("/shift/done");
+      if (local.status !== "open") return router.replace(routeFor(local));
       setRef(await db.reference.get(m.stationId).catch(() => undefined));
       setMe(m);
-      setShift(local);
       setNozzleId(currentLeg(local)?.readings[0]?.nozzleId);
     })();
   }, [router]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (!shift) router.replace("/shift/start");
+    else if (shift.status !== "open") router.replace(routeFor(shift));
+  }, [loaded, shift, router]);
 
   if (!me || !shift) return <main className="min-h-dvh bg-surface-page" aria-busy />;
 
@@ -173,6 +180,12 @@ export default function QuickFillPage() {
         {ref && hours > ref.maxShiftHours && (
           <AlertBanner tone="warning" title={`مرّت أكثر من ${ref.maxShiftHours} ساعة على بداية المناوبة`}>
             أغلق المناوبة، أو اتصل بالمدير إن كان عليك الاستمرار.
+          </AlertBanner>
+        )}
+        {shift.returnedNote && (
+          <AlertBanner tone="warning" title="أعاد صاحب المحطة إغلاقك للتصحيح"
+            action={<Button variant="secondary" onClick={() => router.push("/shift/close")}>أغلق من جديد</Button>}>
+            ملاحظته: «{shift.returnedNote}». صحّح ما طلبه ثم أغلق المناوبة مرة أخرى؛ القراءات النهائية تُدخَل من جديد.
           </AlertBanner>
         )}
         {!leg && <AlertBanner tone="danger" title="لا توجد مضخة حالية لهذه المناوبة">اتصل بالمدير.</AlertBanner>}

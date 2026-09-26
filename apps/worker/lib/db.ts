@@ -75,10 +75,15 @@ export type LocalShift = {
   openedAt: string;
   openingCash: string;             // money as a string of digits, never a float
   legs: LocalLeg[];                // in order; the last one without endedAt is the current pump
-  status: "open" | "submitted";
+  /** open = working; submitted = waiting for the owner; approved / rejected = the owner's decision (from the server) */
+  status: "open" | "submitted" | "approved" | "rejected";
   countedCash?: string;
   diffReason?: string;
   submittedAt?: string;
+  /** the owner's note on an approval or rejection */
+  decisionNote?: string;
+  /** the owner returned the close for correction: shown on the shift screen until the next submit */
+  returnedNote?: string;
 };
 
 export function currentLeg(shift: LocalShift): LocalLeg | undefined {

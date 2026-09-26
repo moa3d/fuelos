@@ -1,6 +1,7 @@
 // Station reference data: the pump board (pump_board RPC), station settings and prices.
 // Fetched through RLS/RPC when online and cached in IndexedDB for offline use.
-import { db, type LocalShift, type PumpRef, type StationRef } from "./db";
+import { db, type LocalLeg, type LocalShift, type PumpRef, type StationRef } from "./db";
+import type { ServerShift, ServerStatus } from "./shift-merge";
 import { supabase } from "./supabase";
 
 const CURRENCY_LABELS: Record<string, string> = { SYP: "ل.س" };
@@ -76,43 +77,69 @@ export async function patchBoard(stationId: string, fn: (pumps: PumpRef[]) => vo
   await db.reference.where("stationId").equals(stationId).modify((ref: StationRef) => fn(ref.pumps)).catch(() => undefined);
 }
 
-type ServerShift = {
-  id: string; station_id: string; opened_at: string; opening_cash: number | string;
-  shift_legs: {
-    id: string; pump_id: string; started_at: string; ended_at: string | null; gap_note: string | null;
-    leg_readings: { nozzle_id: string; opening_reading: number; closing_reading: number | null }[];
-  }[];
+type ServerLeg = {
+  id: string; pump_id: string; started_at: string; ended_at: string | null; gap_note: string | null;
+  leg_readings: { nozzle_id: string; opening_reading: number; closing_reading: number | null }[];
+};
+type ServerShiftRow = {
+  id: string; station_id: string; status: ServerStatus; opened_at: string; opening_cash: number | string;
+  counted_cash: number | string | null; diff_reason: string | null; decision_note: string | null; shift_legs: ServerLeg[];
 };
 
-/** The attendant's open shift on the server (opened on another device, or already synced), as a LocalShift. */
+const SHIFT_COLUMNS =
+  "id, station_id, status, opened_at, opening_cash, counted_cash, diff_reason, decision_note, " +
+  "shift_legs(id, pump_id, started_at, ended_at, gap_note, leg_readings(nozzle_id, opening_reading, closing_reading))";
+
+/** Server legs → the device's shape (pump numbers and fuel names come from the cached station data). */
+export function mapServerLegs(legs: ServerLeg[], ref: StationRef): LocalLeg[] {
+  const pumps = new Map(ref.pumps.map((p) => [p.id, p]));
+  return [...legs]
+    .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
+    .map((l) => {
+      const pump = pumps.get(l.pump_id);
+      const nozzles = new Map(pump?.nozzles.map((n) => [n.id, n]) ?? []);
+      return {
+        legId: l.id, pumpId: l.pump_id, pumpNumber: pump?.number ?? 0, startedAt: l.started_at,
+        endedAt: l.ended_at ?? undefined, gapNote: l.gap_note ?? undefined,
+        readings: l.leg_readings.map((r) => ({
+          nozzleId: r.nozzle_id, label: nozzles.get(r.nozzle_id)?.productName ?? "",
+          productId: nozzles.get(r.nozzle_id)?.productId ?? "",
+          opening: Number(r.opening_reading),
+          closing: r.closing_reading === null ? undefined : Number(r.closing_reading),
+        })),
+      };
+    });
+}
+
+/**
+ * The attendant's working shift on the server (opened on another device, or already synced), as a LocalShift.
+ * A reopened shift carries the owner's note (why he returned the close).
+ */
 export async function findOpenShiftOnServer(userId: string, ref: StationRef): Promise<LocalShift | undefined> {
   const { data, error } = await supabase()
-    .from("shifts")
-    .select("id, station_id, opened_at, opening_cash, shift_legs(id, pump_id, started_at, ended_at, gap_note, leg_readings(nozzle_id, opening_reading, closing_reading))")
+    .from("shifts").select(SHIFT_COLUMNS)
     .eq("attendant_id", userId).in("status", ["open", "reopened"])
     .order("opened_at", { ascending: false }).limit(1)
     .abortSignal(AbortSignal.timeout(TIMEOUT_MS)).maybeSingle();
   if (error || !data) return undefined;
-  const s = data as ServerShift;
-  const pumps = new Map(ref.pumps.map((p) => [p.id, p]));
+  const s = data as unknown as ServerShiftRow;
   return {
     userId, shiftId: s.id, stationId: s.station_id, openedAt: s.opened_at, openingCash: String(s.opening_cash),
-    status: "open",
-    legs: [...s.shift_legs]
-      .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
-      .map((l) => {
-        const pump = pumps.get(l.pump_id);
-        const nozzles = new Map(pump?.nozzles.map((n) => [n.id, n]) ?? []);
-        return {
-          legId: l.id, pumpId: l.pump_id, pumpNumber: pump?.number ?? 0, startedAt: l.started_at,
-          endedAt: l.ended_at ?? undefined, gapNote: l.gap_note ?? undefined,
-          readings: l.leg_readings.map((r) => ({
-            nozzleId: r.nozzle_id, label: nozzles.get(r.nozzle_id)?.productName ?? "",
-            productId: nozzles.get(r.nozzle_id)?.productId ?? "",
-            opening: Number(r.opening_reading),
-            closing: r.closing_reading === null ? undefined : Number(r.closing_reading),
-          })),
-        };
-      }),
+    status: "open", legs: mapServerLegs(s.shift_legs, ref),
+    returnedNote: s.status === "reopened" && s.decision_note ? s.decision_note : undefined,
+  };
+}
+
+/** One shift by id, whatever its status — to learn what the owner decided. */
+export async function loadServerShift(shiftId: string, ref: StationRef): Promise<ServerShift | undefined> {
+  const { data, error } = await supabase()
+    .from("shifts").select(SHIFT_COLUMNS).eq("id", shiftId)
+    .abortSignal(AbortSignal.timeout(TIMEOUT_MS)).maybeSingle();
+  if (error || !data) return undefined;
+  const s = data as unknown as ServerShiftRow;
+  return {
+    status: s.status, decisionNote: s.decision_note, diffReason: s.diff_reason,
+    countedCash: s.counted_cash === null ? null : String(s.counted_cash),
+    legs: mapServerLegs(s.shift_legs, ref),
   };
 }

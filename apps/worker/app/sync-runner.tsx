@@ -1,17 +1,19 @@
 "use client";
 import { useEffect } from "react";
 import { syncNow } from "@/lib/outbox";
+import { reconcileShift } from "@/lib/shift-sync";
 import { supabase } from "@/lib/supabase";
 
 const EVERY_MS = 30_000;
 
 /**
- * Sends the outbox while the app is open: on start, when the connection returns, when the window
- * gets focus, after sign-in, and every 30 s. iOS has no Background Sync, so nothing runs when closed.
+ * Sends the outbox while the app is open (then re-reads the shift from the server): on start, when the
+ * connection returns, when the window gets focus, after sign-in, and every 30 s. iOS has no Background Sync, so nothing runs when closed.
  */
 export function SyncRunner() {
   useEffect(() => {
-    const kick = () => void syncNow().catch(() => undefined);
+    // send what waits, then learn what the owner decided about the shift (only when nothing of it is unsent)
+    const kick = () => void syncNow().then(() => reconcileShift()).catch(() => undefined);
     const onVisible = () => { if (document.visibilityState === "visible") kick(); };
     kick();
     window.addEventListener("online", kick);
