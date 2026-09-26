@@ -2,7 +2,7 @@
 // S2 «تعبئة سريعة» (design/screens/S2.png) and S3 «تم حفظ العملية» (S3.png) — the home of an open shift.
 // Every fill is recorded (owner's decision 2026-09-26; cash fills don't change expected cash).
 // The price is the one locked at shift open; record_sale goes into the outbox with the current leg (p_leg).
-import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
+import { formatMoney, formatNumber } from "@fuelos/core";
 import { AlertBanner, Button, cx, operationsText, StatusBadge } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -14,9 +14,11 @@ import { amountFromLiters, litersFromAmount, milliToString, parseLitersMilli } f
 import { salesOfShift, type PaymentMethod } from "@/lib/sales";
 import { signedInMember } from "@/lib/session";
 import { priceAt } from "@/lib/shift-math";
+import { useOnline } from "@/lib/use-online";
 import { useOutbox } from "@/lib/use-sync";
 import { newId } from "@/lib/uuid";
 import { CheckIcon, StickyAction } from "../shift-parts";
+import { SavedSale } from "../saved-sale";
 import { HeaderChip, WorkerHeader } from "../worker-header";
 
 type Mode = "liters" | "amount";
@@ -24,10 +26,9 @@ const QUICK_AMOUNTS = ["2000", "5000", "10000"];
 const METHODS: { id: PaymentMethod; label: string; icon: ReactNode; soon?: string }[] = [
   { id: "cash", label: "نقدي", icon: <CashIcon /> },
   { id: "card", label: "بطاقة", icon: <CardIcon /> },
-  { id: "credit", label: "آجل لشركة", icon: <BuildingIcon />, soon: "يأتي مع شاشة الشركات" },
+  { id: "credit", label: "آجل لشركة", icon: <BuildingIcon /> },
   { id: "voucher", label: "قسيمة", icon: <TicketIcon /> },
 ];
-const METHOD_LABEL: Record<PaymentMethod, string> = { cash: "نقدي", card: "بطاقة", credit: "آجل لشركة", voucher: "قسيمة" };
 
 export default function QuickFillPage() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export default function QuickFillPage() {
   const [savedId, setSavedId] = useState<string>();
   const busy = useRef(false);
   const outbox = useOutbox(me?.userId);
+  const online = useOnline();
 
   useEffect(() => {
     (async () => {
@@ -154,48 +156,10 @@ export default function QuickFillPage() {
   // ---------- S3: تم حفظ العملية ----------
   const saved = savedId ? outbox.byId.get(savedId) : undefined;
   if (savedId && saved) {
-    const serverAmount = saved.result?.amount;
-    const total = (serverAmount !== undefined ? toCents(String(serverAmount)) : null) ?? toCents(saved.meta?.amount ?? "0") ?? 0n;
-    const unit = saved.result?.unit_price ?? saved.params.p_unit_price;
     return (
       <div className="min-h-dvh bg-surface-page pb-48">
         <WorkerHeader userId={me.userId} name={me.displayName} stationName={ref?.stationName} chips={chips} />
-        <main className="mx-auto flex w-full max-w-[390px] flex-col items-center gap-4 px-4 pt-8 text-center">
-          <span className="flex size-20 items-center justify-center rounded-full bg-brand-action-50 text-brand-action-700">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
-          </span>
-          <h1 className="text-heading-h1-24">تم حفظ العملية</h1>
-          <p className="text-body-regular-14 text-text-secondary">
-            رقم العملية <span dir="ltr">{savedId.slice(0, 8).toUpperCase()}</span> · {formatTime(saved.createdAt)}
-          </p>
-
-          {saved.status === "pending" && (
-            <AlertBanner tone="warning" className="w-full text-start" title="محفوظة على الجهاز">
-              ستُرسل تلقائياً عند عودة الاتصال · {operationsText(outbox.unsent)} بانتظار المزامنة
-            </AlertBanner>
-          )}
-          {saved.status === "sent" && <StatusBadge tone="success">أُرسلت إلى الخادم</StatusBadge>}
-
-          <section className="w-full rounded-lg bg-surface-card p-4 text-start shadow-card">
-            <dl className="flex flex-col gap-2 text-body-regular-14">
-              <Row label="الوقود" value={saved.meta?.product ?? ""} />
-              <Row label="الكمية" value={`${formatNumber(Number(saved.params.p_liters), 2)} لتر`} />
-              <Row label="سعر اللتر" value={formatMoney(String(unit), currency)} />
-              <Row label="طريقة الدفع" value={METHOD_LABEL[saved.params.p_method as PaymentMethod]} />
-              <Row label="الزبون" value="غير مرتبط" muted />
-            </dl>
-            <div className="mt-3 flex items-baseline justify-between border-t border-border-default pt-3">
-              <span className="text-heading-h3-16">الإجمالي</span>
-              <span className="text-number-xl-32">{money(total)}</span>
-            </div>
-          </section>
-        </main>
-        <footer className="fixed inset-x-0 bottom-0 border-t border-border-default bg-surface-card">
-          <div className="mx-auto flex w-full max-w-[390px] flex-col gap-2 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3">
-            <Button variant="secondary" size="lg" block onClick={() => window.print()}>طباعة</Button>
-            <Button variant="action" size="lg" block onClick={resetForm}>+ عملية جديدة</Button>
-          </div>
-        </footer>
+        <SavedSale row={saved} unsent={outbox.unsent} currency={currency} onNew={resetForm} />
       </div>
     );
   }
@@ -286,16 +250,19 @@ export default function QuickFillPage() {
               <div role="radiogroup" aria-label="طريقة الدفع" className="grid grid-cols-2 gap-2">
                 {METHODS.map((m) => {
                   const active = method === m.id;
+                  // company credit needs the server to check the company's remaining limit (S8)
+                  const offlineCredit = m.id === "credit" && !online;
+                  const note = offlineCredit ? "يحتاج اتصالاً للتحقق من رصيد الشركة" : m.soon;
                   return (
-                    <button key={m.id} type="button" role="radio" aria-checked={active} disabled={!!m.soon}
-                      onClick={() => setMethod(m.id)}
+                    <button key={m.id} type="button" role="radio" aria-checked={active} disabled={!!note}
+                      onClick={() => (m.id === "credit" ? router.push("/shift/credit") : setMethod(m.id))}
                       className={cx("flex min-h-16 items-center gap-3 rounded-md border px-4 text-start",
                         active ? "border-2 border-brand-primary bg-brand-primary-50"
-                        : m.soon ? "border-border-default bg-surface-muted text-text-muted" : "border-border-default bg-surface-card")}>
+                        : note ? "border-border-default bg-surface-muted text-text-muted" : "border-border-default bg-surface-card")}>
                       <span className={active ? "text-brand-primary" : "text-text-secondary"}>{m.icon}</span>
                       <span className="flex-1">
                         <span className="block text-body-strong-14">{m.label}</span>
-                        {m.soon && <span className="block text-label-11">{m.soon}</span>}
+                        {note && <span className="block text-label-11">{note}</span>}
                       </span>
                       {active && <span className="text-brand-primary"><CheckIcon /></span>}
                     </button>
@@ -333,15 +300,6 @@ export default function QuickFillPage() {
           {saving ? "جارٍ الحفظ…" : "حفظ العملية"}
         </StickyAction>
       )}
-    </div>
-  );
-}
-
-function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="flex items-baseline justify-between">
-      <dt className="text-text-secondary">{label}</dt>
-      <dd className={cx("font-semibold", muted && "text-text-muted")}>{value}</dd>
     </div>
   );
 }
