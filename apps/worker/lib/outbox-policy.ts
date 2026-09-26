@@ -17,6 +17,12 @@ export function classifyFailure(f: RpcFailure): FailureKind {
   return "permanent";
 }
 
+/** submit_shift has no client id: a replay after a lost answer means the first attempt worked. */
+export function alreadyApplied(rpc: string, f: RpcFailure): boolean {
+  return rpc === "submit_shift" && f.message === "FUELOS_BAD_SHIFT_TRANSITION"
+    && ["submitted", "approved", "rejected"].includes((f.details ?? "").trim());
+}
+
 /** 2 s, 4 s, 8 s … capped at 5 minutes. `attempts` counts the failures so far (1 = first failure). */
 export function backoffMs(attempts: number): number {
   return Math.min(2_000 * 2 ** Math.max(0, attempts - 1), 300_000);

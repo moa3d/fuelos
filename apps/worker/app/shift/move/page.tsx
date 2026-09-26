@@ -3,7 +3,7 @@
 // with its opening readings. One switch_pump in the outbox; the cash stays with the attendant.
 import { AlertBanner, Button, operationsText } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   currentLeg, db, getDevice, type CurrentMember, type LocalShift, type StationRef,
 } from "@/lib/db";
@@ -33,6 +33,7 @@ export default function MovePage() {
   const [gapNote, setGapNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const busy = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -72,62 +73,68 @@ export default function MovePage() {
   }
 
   async function confirm() {
-    if (!me || !shift || !ref || !pump || missing2 || closeCheck.problem || saving) return;
-    setSaving(true);
-    setSaveError(undefined);
-    const newLegId = newId();
-    const at = new Date().toISOString();
-    const openTenths = new Map(openCheck.readings.map((r) => [r.nozzleId, r.tenths]));
-    const note = openCheck.gapTenths > 0 ? gapNote.trim() : null;
-    const device = await getDevice().catch(() => undefined);
-    const params = {
-      p_shift: shift.shiftId,
-      p_new_leg_id: newLegId,
-      p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typedClosing.get(r.nozzleId)! / 10 })),
-      p_new_pump: pump.id,
-      p_opening: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: openTenths.get(n.id)! / 10 })),
-      p_gap_note: note,
-      p_device: device?.deviceId ?? null,
-      p_client_created_at: at,
-    };
-    const next: LocalShift = {
-      ...shift,
-      legs: [
-        ...shift.legs.slice(0, -1),
-        { ...leg, endedAt: at, readings: leg.readings.map((r) => ({ ...r, closing: typedClosing.get(r.nozzleId)! / 10 })) },
-        {
-          legId: newLegId, pumpId: pump.id, pumpNumber: pump.number, startedAt: at, gapNote: note ?? undefined,
-          readings: pump.nozzles.map((n) => ({
-            nozzleId: n.id, label: n.productName, productId: n.productId, opening: openTenths.get(n.id)! / 10,
-          })),
-        },
-      ],
-    };
+    if (busy.current) return;                           // a double tap must not queue two rows
+    busy.current = true;
     try {
-      await db.transaction("rw", db.outbox, db.shift, async () => {
-        await assertRoom(me.userId, ref.offlineMaxOps);
-        await db.outbox.add(newOutboxRow(me.userId, "switch_pump", newLegId, params));
-        await db.shift.put(next);
-      });
-    } catch (e) {
-      setSaving(false);
-      setSaveError(e instanceof OutboxFullError
-        ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
-        : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
-      return;
-    }
-    // keep the cached board in step for the next offline move
-    await patchBoard(me.stationId, (pumps) => {
-      const old = pumps.find((p) => p.id === leg.pumpId);
-      if (old) {
-        old.heldBy = null; old.heldByMe = false;
-        old.nozzles.forEach((n) => { const t = typedClosing.get(n.id); if (t !== undefined) n.lastReading = t / 10; });
+      if (!me || !shift || !ref || !pump || missing2 || closeCheck.problem || saving) return;
+      setSaving(true);
+      setSaveError(undefined);
+      const newLegId = newId();
+      const at = new Date().toISOString();
+      const openTenths = new Map(openCheck.readings.map((r) => [r.nozzleId, r.tenths]));
+      const note = openCheck.gapTenths > 0 ? gapNote.trim() : null;
+      const device = await getDevice().catch(() => undefined);
+      const params = {
+        p_shift: shift.shiftId,
+        p_new_leg_id: newLegId,
+        p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typedClosing.get(r.nozzleId)! / 10 })),
+        p_new_pump: pump.id,
+        p_opening: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: openTenths.get(n.id)! / 10 })),
+        p_gap_note: note,
+        p_device: device?.deviceId ?? null,
+        p_client_created_at: at,
+      };
+      const next: LocalShift = {
+        ...shift,
+        legs: [
+          ...shift.legs.slice(0, -1),
+          { ...leg, endedAt: at, readings: leg.readings.map((r) => ({ ...r, closing: typedClosing.get(r.nozzleId)! / 10 })) },
+          {
+            legId: newLegId, pumpId: pump.id, pumpNumber: pump.number, startedAt: at, gapNote: note ?? undefined,
+            readings: pump.nozzles.map((n) => ({
+              nozzleId: n.id, label: n.productName, productId: n.productId, opening: openTenths.get(n.id)! / 10,
+            })),
+          },
+        ],
+      };
+      try {
+        await db.transaction("rw", db.outbox, db.shift, async () => {
+          await assertRoom(me.userId, ref.offlineMaxOps);
+          await db.outbox.add(newOutboxRow(me.userId, "switch_pump", newLegId, params));
+          await db.shift.put(next);
+        });
+      } catch (e) {
+        setSaving(false);
+        setSaveError(e instanceof OutboxFullError
+          ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
+          : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
+        return;
       }
-      const neu = pumps.find((p) => p.id === pump.id);
-      if (neu) { neu.heldBy = me.displayName; neu.heldByMe = true; }
-    });
-    void syncNow();
-    router.replace("/shift");
+      // keep the cached board in step for the next offline move
+      await patchBoard(me.stationId, (pumps) => {
+        const old = pumps.find((p) => p.id === leg.pumpId);
+        if (old) {
+          old.heldBy = null; old.heldByMe = false;
+          old.nozzles.forEach((n) => { const t = typedClosing.get(n.id); if (t !== undefined) n.lastReading = t / 10; });
+        }
+        const neu = pumps.find((p) => p.id === pump.id);
+        if (neu) { neu.heldBy = me.displayName; neu.heldByMe = true; }
+      });
+      void syncNow();
+      router.replace("/shift");
+    } finally {
+      busy.current = false;
+    }
   }
 
   return (

@@ -1,19 +1,21 @@
 "use client";
 // S4–S6 — إغلاق المناوبة (design/screens/S4.png, S5.png, S6.png; spec §6 with legs):
 // 1. closing readings of the CURRENT pump, 2. counted cash, 3. review of every leg → «إرسال للاعتماد».
-// Totals here are a device preview («تقديري»); submit_shift recomputes them on the server.
+// Online: fresh station data, and totals from the server's shift_summary (price at shift open) plus the typed
+// current pump. Offline: a device preview labelled «تقديري». submit_shift recomputes everything anyway.
 import { formatMoney, formatTime } from "@fuelos/core";
 import { AlertBanner, Button, cx, Input, operationsText, StatusBadge, TextArea } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { currentLeg, db, type CurrentMember, type LocalShift, type StationRef } from "@/lib/db";
 import { validateClosing } from "@/lib/leg-form";
 import { centsToString, toCents } from "@/lib/money";
 import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
 import { litersToTenths, parseCash } from "@/lib/reading";
-import { patchBoard } from "@/lib/reference";
+import { loadReference, patchBoard } from "@/lib/reference";
 import { signedInMember } from "@/lib/session";
-import { needsDiffReason, shiftTotals } from "@/lib/shift-math";
+import { needsDiffReason, shiftTotals, totalsWithServer, type ServerSummary } from "@/lib/shift-math";
+import { supabase } from "@/lib/supabase";
 import { newId } from "@/lib/uuid";
 import { AutoTotals, CheckIcon, ClosingReadings, liters, MeterPhotoCard, StickyAction, Steps } from "../../shift-parts";
 import { WorkerHeader } from "../../worker-header";
@@ -23,12 +25,14 @@ export default function CloseShiftPage() {
   const [me, setMe] = useState<CurrentMember>();
   const [shift, setShift] = useState<LocalShift>();
   const [ref, setRef] = useState<StationRef>();
+  const [summary, setSummary] = useState<ServerSummary>();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [closing, setClosing] = useState<Record<string, string>>({});
   const [counted, setCounted] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const busy = useRef(false);
   const [now] = useState(() => new Date().toISOString());
 
   useEffect(() => {
@@ -42,6 +46,15 @@ export default function CloseShiftPage() {
       setRef(await db.reference.get(m.stationId).catch(() => undefined));
       setMe(m);
       setShift(local);
+      // online: fresh tolerance and prices, and the server's view of the shift (if nothing is still queued for it)
+      const res = await loadReference(m.stationId).catch(() => undefined);
+      if (res && res.source === "server") setRef(res.data);
+      if (res?.source === "server" && !(await hasUnsentFor(m.userId, local.shiftId))) {
+        const { data, error } = await supabase().rpc("shift_summary", { p_shift: local.shiftId })
+          .abortSignal(AbortSignal.timeout(15_000));
+        const s = data as ServerSummary | null;
+        if (!error && s && s.legs.length === local.legs.length) setSummary(s);
+      }
     })();
   }, [router]);
 
@@ -51,7 +64,11 @@ export default function CloseShiftPage() {
   const currency = ref?.currencyLabel ?? "ل.س";
   const closeCheck = validateClosing(leg.readings, closing);
   const typed = new Map(closeCheck.readings.map((r) => [r.nozzleId, r.tenths]));
-  const totals = shiftTotals(
+  const totals = summary
+    ? totalsWithServer(summary, leg.legId, leg.readings.map((r) => ({
+        nozzleId: r.nozzleId, openingTenths: litersToTenths(r.opening), closingTenths: typed.get(r.nozzleId),
+      })))
+    : shiftTotals(
     shift.legs.map((l) => ({
       legId: l.legId,
       readings: l.readings.map((r) => ({
@@ -70,45 +87,51 @@ export default function CloseShiftPage() {
   const subtitle = `المضخة ${leg.pumpNumber} · ${leg.readings.map((r) => r.label).join(" · ")} · ${formatTime(shift.openedAt)} – ${formatTime(now)}`;
 
   async function submit() {
-    if (!me || !shift || countedValue === null || closeCheck.problem || (reasonRequired && !reason.trim()) || saving) return;
-    setSaving(true);
-    setSaveError(undefined);
-    const at = new Date().toISOString();
-    const rowId = newId();
-    const params = {
-      p_shift: shift.shiftId,
-      p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typed.get(r.nozzleId)! / 10 })),
-      p_counted_cash: countedValue,                        // digits string → numeric on the server
-      p_diff_reason: reason.trim() || null,
-    };
-    const next: LocalShift = {
-      ...shift, status: "submitted", countedCash: countedValue, diffReason: reason.trim() || undefined, submittedAt: at,
-      legs: [
-        ...shift.legs.slice(0, -1),
-        { ...leg, endedAt: at, readings: leg.readings.map((r) => ({ ...r, closing: typed.get(r.nozzleId)! / 10 })) },
-      ],
-    };
+    if (busy.current) return;                           // a double tap must not queue two rows
+    busy.current = true;
     try {
-      await db.transaction("rw", db.outbox, db.shift, async () => {
-        await assertRoom(me.userId, ref?.offlineMaxOps ?? 50);
-        await db.outbox.add(newOutboxRow(me.userId, "submit_shift", rowId, params));
-        await db.shift.put(next);
+      if (!me || !shift || countedValue === null || closeCheck.problem || (reasonRequired && !reason.trim()) || saving) return;
+      setSaving(true);
+      setSaveError(undefined);
+      const at = new Date().toISOString();
+      const rowId = newId();
+      const params = {
+        p_shift: shift.shiftId,
+        p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typed.get(r.nozzleId)! / 10 })),
+        p_counted_cash: countedValue,                        // digits string → numeric on the server
+        p_diff_reason: reason.trim() || null,
+      };
+      const next: LocalShift = {
+        ...shift, status: "submitted", countedCash: countedValue, diffReason: reason.trim() || undefined, submittedAt: at,
+        legs: [
+          ...shift.legs.slice(0, -1),
+          { ...leg, endedAt: at, readings: leg.readings.map((r) => ({ ...r, closing: typed.get(r.nozzleId)! / 10 })) },
+        ],
+      };
+      try {
+        await db.transaction("rw", db.outbox, db.shift, async () => {
+          await assertRoom(me.userId, ref?.offlineMaxOps ?? 50);
+          await db.outbox.add(newOutboxRow(me.userId, "submit_shift", rowId, params));
+          await db.shift.put(next);
+        });
+      } catch (e) {
+        setSaving(false);
+        setSaveError(e instanceof OutboxFullError
+          ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
+          : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
+        return;
+      }
+      await patchBoard(me.stationId, (pumps) => {
+        const p = pumps.find((x) => x.id === leg.pumpId);
+        if (!p) return;
+        p.heldBy = null; p.heldByMe = false;
+        p.nozzles.forEach((n) => { const t = typed.get(n.id); if (t !== undefined) n.lastReading = t / 10; });
       });
-    } catch (e) {
-      setSaving(false);
-      setSaveError(e instanceof OutboxFullError
-        ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
-        : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
-      return;
+      void syncNow();
+      router.replace("/shift/done");
+    } finally {
+      busy.current = false;
     }
-    await patchBoard(me.stationId, (pumps) => {
-      const p = pumps.find((x) => x.id === leg.pumpId);
-      if (!p) return;
-      p.heldBy = null; p.heldByMe = false;
-      p.nozzles.forEach((n) => { const t = typed.get(n.id); if (t !== undefined) n.lastReading = t / 10; });
-    });
-    void syncNow();
-    router.replace("/shift/done");
   }
 
   return (
@@ -123,7 +146,7 @@ export default function CloseShiftPage() {
             <ClosingReadings readings={leg.readings} startedAt={leg.startedAt} values={closing}
               checks={closeCheck.checks} onChange={(id, v) => setClosing((c) => ({ ...c, [id]: v }))} />
             <AutoTotals litersTenths={currentTotals.litersTenths} amountCents={centsToString(currentTotals.amountCents)}
-              currencyLabel={currency} missingPrice={currentTotals.missingPrice} />
+              currencyLabel={currency} missingPrice={currentTotals.missingPrice} estimate={!summary} />
             <MeterPhotoCard title="صورة العداد النهائية" />
           </>
         )}
@@ -131,7 +154,7 @@ export default function CloseShiftPage() {
         {step === 2 && (
           <>
             <section className="rounded-lg bg-surface-card p-4 shadow-card">
-              <div className="mb-2 flex justify-end"><StatusBadge tone="info">تقديري</StatusBadge></div>
+              {!summary && <div className="mb-2 flex justify-end"><StatusBadge tone="info">تقديري</StatusBadge></div>}
               <dl className="flex flex-col gap-2 text-body-regular-14">
                 <Row label={`إجمالي المبيعات${shift.legs.length > 1 ? ` (${shift.legs.length} مضخات)` : ""}`}
                   value={totals.missingPrice ? "لا يوجد سعر" : money(totals.meterSalesCents)} />
@@ -169,7 +192,7 @@ export default function CloseShiftPage() {
             <section className="rounded-lg bg-surface-card p-4 shadow-card">
               <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-heading-h3-16">المضخات في هذه المناوبة</h2>
-                <StatusBadge tone="info">تقديري</StatusBadge>
+                {!summary && <StatusBadge tone="info">تقديري</StatusBadge>}
               </div>
               <ul className="flex flex-col gap-2">
                 {shift.legs.map((l) => {
@@ -260,4 +283,12 @@ function LockIcon() {
       <rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   );
+}
+
+/** Moves or an open still in the outbox: the server does not know every leg yet. */
+async function hasUnsentFor(userId: string, shiftId: string): Promise<boolean> {
+  const n = await db.outbox.where("userId").equals(userId)
+    .filter((r) => (r.params.p_shift_id ?? r.params.p_shift) === shiftId && (r.status === "pending" || r.status === "failed_permanent"))
+    .count().catch(() => 1);
+  return n > 0;
 }

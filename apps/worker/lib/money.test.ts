@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { amountCents, centsToString, toCents } from "./money.ts";
-import { needsDiffReason, priceAt, shiftTotals } from "./shift-math.ts";
+import { needsDiffReason, priceAt, shiftTotals, totalsWithServer } from "./shift-math.ts";
 
 test("money strings become cents without floats", () => {
   assert.equal(toCents("927438"), 92_743_800n);
@@ -63,4 +63,18 @@ test("a reason is required only above the tolerance", () => {
   assert.equal(needsDiffReason(toCents("634938")!, toCents("639438")!, toCents("1000")!), true);
   assert.equal(needsDiffReason(toCents("639000")!, toCents("639438")!, toCents("1000")!), false);
   assert.equal(needsDiffReason(toCents("640438")!, toCents("639438")!, toCents("1000")!), false);  // exactly 1,000
+});
+
+test("online close: server summary for ended legs + current pump × the shift's price", () => {
+  const summary = {
+    liters: 50, meter_sales: 5000, expected_cash: 55000,             // opening 50,000 + leg 1
+    nozzles: [{ nozzle_id: "n1", price: 100 }, { nozzle_id: "n3", price: "125.55" }],
+    legs: [{ leg_id: "a", liters: 50, amount: 5000 }, { leg_id: "b", liters: 0, amount: 0 }],
+  };
+  const t = totalsWithServer(summary, "b", [{ nozzleId: "n3", openingTenths: 20_000, closingTenths: 20_401 }]);  // 40.1 L
+  assert.equal(t.litersTenths, 901);
+  assert.equal(t.legs[1].amountCents, 503_456n);                     // 40.1 × 125.55 = 5,034.555 → 5,034.56
+  assert.equal(t.meterSalesCents, 1_003_456n);
+  assert.equal(t.expectedCashCents, 6_003_456n);
+  assert.equal(t.missingPrice, false);
 });

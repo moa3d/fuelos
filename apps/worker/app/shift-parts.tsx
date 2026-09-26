@@ -141,14 +141,16 @@ export function ClosingReadings({ readings, startedAt, values, checks, onChange 
 }
 
 /** «يُحسب تلقائياً»: liters and value of the typed readings (a device preview, labelled as an estimate). */
-export function AutoTotals({ litersTenths, amountCents, currencyLabel, missingPrice }: {
+export function AutoTotals({ litersTenths, amountCents, currencyLabel, missingPrice, estimate = true }: {
   litersTenths: number; amountCents: string; currencyLabel: string; missingPrice: boolean;
+  /** false when the price came from the server's shift_summary */
+  estimate?: boolean;
 }) {
   return (
     <div className="rounded-md bg-brand-primary-50 p-4">
       <div className="flex items-center justify-between">
         <p className="text-label-12 text-brand-primary">يُحسب تلقائياً</p>
-        <StatusBadge tone="info">تقديري</StatusBadge>
+        {estimate && <StatusBadge tone="info">تقديري</StatusBadge>}
       </div>
       <dl className="mt-2 flex flex-col gap-1">
         <div className="flex justify-between"><dt className="text-body-regular-14">اللترات المباعة</dt>

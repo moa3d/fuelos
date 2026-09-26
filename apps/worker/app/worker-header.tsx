@@ -97,7 +97,9 @@ export function WorkerHeader({ userId, name, stationName, title, subtitle, backH
 function RefusedBanner({ row, userId }: { row: OutboxRow; userId: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const reason = row.rpc === "switch_pump" && row.lastErrorCode === "FUELOS_PUMP_BUSY"
+  // two attendants took the same pump offline; the first to reach the server kept it (spec §7)
+  const pumpTaken = (row.rpc === "open_shift" || row.rpc === "switch_pump") && row.lastErrorCode === "FUELOS_PUMP_BUSY";
+  const reason = pumpTaken
     ? PUMP_TAKEN_OFFLINE_MESSAGE
     : errorMessage(row.lastErrorCode, row.lastErrorDetail);
   const what = { open_shift: "لم تُفتح المناوبة", switch_pump: "لم يُسجَّل الانتقال", submit_shift: "لم يُرسل الإغلاق", record_sale: "لم تُسجَّل العملية" }[row.rpc];

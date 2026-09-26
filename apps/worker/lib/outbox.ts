@@ -2,7 +2,7 @@
 // then sent in FIFO order, one at a time, with the session of the attendant who created it.
 // Rules: .claude/skills/fuelos-offline-sync. Never delete a row.
 import { db, type OutboxRow, type OutboxRpc } from "./db";
-import { backoffMs, classifyFailure, errorCodeOf, parseDetail } from "./outbox-policy";
+import { alreadyApplied, backoffMs, classifyFailure, errorCodeOf, parseDetail } from "./outbox-policy";
 import { supabase } from "./supabase";
 
 const RPC_TIMEOUT_MS = 15_000;
@@ -121,7 +121,8 @@ async function send(row: OutboxRow): Promise<boolean> {
   }
   const { error, status: http } = res;
 
-  if (!error) {
+  const failure = error ? { status: http, code: error.code, message: error.message, details: error.details } : undefined;
+  if (!failure || alreadyApplied(row.rpc, failure)) {
     await db.outbox.update(key, {
       status: "sent", sentAt: new Date().toISOString(),
       nextAttemptAt: undefined, lastError: undefined, lastErrorCode: undefined, lastErrorDetail: undefined,
@@ -129,23 +130,22 @@ async function send(row: OutboxRow): Promise<boolean> {
     return true;
   }
 
-  const failure = { status: http, code: error.code, message: error.message, details: error.details };
   const attempts = row.attempts + 1;
   switch (classifyFailure(failure)) {
     case "permanent":
       await db.outbox.update(key, {
-        status: "failed_permanent", attempts, lastError: error.message,
-        lastErrorCode: errorCodeOf(failure), lastErrorDetail: parseDetail(error.details),
+        status: "failed_permanent", attempts, lastError: failure.message,
+        lastErrorCode: errorCodeOf(failure), lastErrorDetail: parseDetail(failure.details),
       });
       return false;
     case "auth":
-      await db.outbox.update(key, { attempts, lastError: error.message });
+      await db.outbox.update(key, { attempts, lastError: failure.message });
       setStatus({ needsSignIn: true });
       return false;
     case "retry": {
       const delay = backoffMs(attempts);
       await db.outbox.update(key, {
-        attempts, lastError: error.message, nextAttemptAt: new Date(Date.now() + delay).toISOString(),
+        attempts, lastError: failure.message, nextAttemptAt: new Date(Date.now() + delay).toISOString(),
       });
       scheduleRetry(delay);
       return false;

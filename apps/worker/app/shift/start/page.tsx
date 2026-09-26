@@ -4,7 +4,7 @@
 import { formatTime } from "@fuelos/core";
 import { AlertBanner, Button, Input, operationsText } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { db, getDevice, type CurrentMember, type LocalShift, type StationRef } from "@/lib/db";
 import { validateOpening } from "@/lib/leg-form";
 import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
@@ -31,6 +31,7 @@ export default function ShiftStartPage() {
   const [cash, setCash] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const busy = useRef(false);
 
   const load = useCallback(async (m: CurrentMember) => {
     try {
@@ -86,53 +87,59 @@ export default function ShiftStartPage() {
   }
 
   async function start() {
-    if (!me || !ref || !pump || missing || saving || cashValue === null) return;
-    setSaving(true);
-    setSaveError(undefined);
-    const shiftId = newId();
-    const legId = newId();
-    const openedAt = new Date().toISOString();
-    const tenths = new Map(opening.readings.map((r) => [r.nozzleId, r.tenths]));
-    const note = opening.gapTenths > 0 ? gapNote.trim() : null;
-    const device = await getDevice().catch(() => undefined);
-    const params = {
-      p_shift_id: shiftId,
-      p_leg_id: legId,
-      p_pump: pump.id,
-      p_opening_cash: cashValue,                          // digits string → numeric on the server
-      p_readings: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: tenths.get(n.id)! / 10 })),
-      p_gap_note: note,
-      p_device: device?.deviceId ?? null,
-      p_client_created_at: openedAt,
-    };
-    const local: LocalShift = {
-      userId: me.userId, shiftId, stationId: me.stationId, openedAt, openingCash: cashValue, status: "open",
-      legs: [{
-        legId, pumpId: pump.id, pumpNumber: pump.number, startedAt: openedAt, gapNote: note ?? undefined,
-        readings: pump.nozzles.map((n) => ({
-          nozzleId: n.id, label: n.productName, productId: n.productId, opening: tenths.get(n.id)! / 10,
-        })),
-      }],
-    };
+    if (busy.current) return;                           // a double tap must not queue two rows
+    busy.current = true;
     try {
-      await db.transaction("rw", db.outbox, db.shift, async () => {
-        await assertRoom(me.userId, ref.offlineMaxOps);
-        await db.outbox.add(newOutboxRow(me.userId, "open_shift", shiftId, params));
-        await db.shift.put(local);
+      if (!me || !ref || !pump || missing || saving || cashValue === null) return;
+      setSaving(true);
+      setSaveError(undefined);
+      const shiftId = newId();
+      const legId = newId();
+      const openedAt = new Date().toISOString();
+      const tenths = new Map(opening.readings.map((r) => [r.nozzleId, r.tenths]));
+      const note = opening.gapTenths > 0 ? gapNote.trim() : null;
+      const device = await getDevice().catch(() => undefined);
+      const params = {
+        p_shift_id: shiftId,
+        p_leg_id: legId,
+        p_pump: pump.id,
+        p_opening_cash: cashValue,                          // digits string → numeric on the server
+        p_readings: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: tenths.get(n.id)! / 10 })),
+        p_gap_note: note,
+        p_device: device?.deviceId ?? null,
+        p_client_created_at: openedAt,
+      };
+      const local: LocalShift = {
+        userId: me.userId, shiftId, stationId: me.stationId, openedAt, openingCash: cashValue, status: "open",
+        legs: [{
+          legId, pumpId: pump.id, pumpNumber: pump.number, startedAt: openedAt, gapNote: note ?? undefined,
+          readings: pump.nozzles.map((n) => ({
+            nozzleId: n.id, label: n.productName, productId: n.productId, opening: tenths.get(n.id)! / 10,
+          })),
+        }],
+      };
+      try {
+        await db.transaction("rw", db.outbox, db.shift, async () => {
+          await assertRoom(me.userId, ref.offlineMaxOps);
+          await db.outbox.add(newOutboxRow(me.userId, "open_shift", shiftId, params));
+          await db.shift.put(local);
+        });
+      } catch (e) {
+        setSaving(false);
+        setSaveError(e instanceof OutboxFullError
+          ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
+          : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
+        return;
+      }
+      await patchBoard(me.stationId, (pumps) => {
+        const p = pumps.find((x) => x.id === pump.id);
+        if (p) { p.heldBy = me.displayName; p.heldByMe = true; }
       });
-    } catch (e) {
-      setSaving(false);
-      setSaveError(e instanceof OutboxFullError
-        ? `وصلت إلى ${operationsText(e.limit)} غير متزامنة — اتصل بالإنترنت لإكمال المزامنة`
-        : "تعذّر الحفظ على هذا الجهاز — أغلق التطبيق وافتحه من جديد");
-      return;
+      void syncNow();
+      router.replace("/shift");
+    } finally {
+      busy.current = false;
     }
-    await patchBoard(me.stationId, (pumps) => {
-      const p = pumps.find((x) => x.id === pump.id);
-      if (p) { p.heldBy = me.displayName; p.heldByMe = true; }
-    });
-    void syncNow();
-    router.replace("/shift");
   }
 
   if (!me) return <main className="min-h-dvh bg-surface-page" aria-busy />;

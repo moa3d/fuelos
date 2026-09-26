@@ -68,3 +68,44 @@ export function needsDiffReason(countedCents: bigint, expectedCents: bigint, tol
   const diff = countedCents - expectedCents;
   return (diff < 0n ? -diff : diff) > toleranceCents;
 }
+
+/** The parts of shift_summary() the close wizard uses (numbers arrive as JSON numbers or strings). */
+export type ServerSummary = {
+  liters: number | string;
+  meter_sales: number | string;
+  expected_cash: number | string;
+  nozzles: { nozzle_id: string; price: number | string | null }[];
+  legs: { leg_id: string; liters: number | string; amount: number | string }[];
+};
+
+/**
+ * Totals when online: the server's shift_summary covers every ended leg (the current leg counts 0 there
+ * because it has no closing reading yet), and its nozzle price is the price at shift open. Add the current
+ * pump's typed liters × that price, rounded per nozzle to the cent, exactly as submit_shift will.
+ */
+export function totalsWithServer(
+  summary: ServerSummary, currentLegId: string, current: { nozzleId: string; openingTenths: number; closingTenths?: number }[],
+): ShiftTotals {
+  const price = new Map(summary.nozzles.map((n) => [n.nozzle_id, n.price === null ? null : toCents(String(n.price))]));
+  let curLiters = 0;
+  let curAmount = 0n;
+  let missing = false;
+  for (const r of current) {
+    const liters = r.closingTenths === undefined ? 0 : r.closingTenths - r.openingTenths;
+    const p = price.get(r.nozzleId) ?? null;
+    if (p === null) missing = missing || liters > 0;
+    curLiters += liters;
+    curAmount += p === null ? 0n : amountCents(liters, p);
+  }
+  const tenths = (v: number | string) => Math.round(Number(v) * 10);
+  const cents = (v: number | string) => toCents(String(v)) ?? 0n;
+  return {
+    legs: summary.legs.map((l) => l.leg_id === currentLegId
+      ? { legId: l.leg_id, litersTenths: curLiters, amountCents: curAmount, missingPrice: missing }
+      : { legId: l.leg_id, litersTenths: tenths(l.liters), amountCents: cents(l.amount), missingPrice: false }),
+    litersTenths: tenths(summary.liters) + curLiters,
+    meterSalesCents: cents(summary.meter_sales) + curAmount,
+    expectedCashCents: cents(summary.expected_cash) + curAmount,
+    missingPrice: missing,
+  };
+}
