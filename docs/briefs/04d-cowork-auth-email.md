@@ -18,6 +18,16 @@ going live. The app's own error mapping already has Arabic copy for this (`over_
 `packages/core/src/auth-errors.ts`: "أُرسلت رسائل كثيرة — انتظر قليلاً ثم اطلب رمزاً جديداً") — so the code
 handles it correctly; there's just no room left in the built-in quota to actually test the happy path today.
 
+## Update (same day): one email got through, then delivery went silent again
+On a later attempt the user's own email (a real Gmail address) did receive a code once, but it failed
+`verifyOtp` as "invalid or expired" — plausibly just an expired/mistyped code, not a new bug (the input showed
+7 characters where a code is 6). A follow-up "resend" then produced **no error on screen and no email
+arrived**. A diagnostic `signInWithOtp` at that point returned **no error at all** (not rate-limited), meaning
+Supabase accepted the send request but the email never reached the inbox — consistent with Supabase's shared
+built-in mailer being unreliable for real delivery (well-documented as "for testing only"; many providers,
+Gmail included, silently drop or spam-filter mail from Supabase's shared sending domain). Ask the user to also
+check spam/junk before assuming total silence — but the underlying fix is unchanged: a proper SMTP provider.
+
 ## Same root cause as brief 04a
 04a already flagged this project has no email sender configured, for the "مشاركة مع المحاسب" report-sharing
 Edge Function. This is the same underlying gap surfacing a second time, now blocking a core login flow rather

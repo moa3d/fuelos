@@ -2,8 +2,8 @@
 // C1 — الرئيسية, guest-accessible slice (design/screens/C1.png). No login required: public_station_prices is
 // granted to anon. The map/distance/rating parts of the full design need schema FuelOS doesn't have yet
 // (station lat/long, ratings, services catalog) — omitted here rather than faked; this shows a plain station
-// list with real prices, availability and freshness/source instead. Quick-action tiles (شكاوى/عروض/فواتير/
-// سياراتي) point at screens not built yet (C2–C7) and stay disabled with an explanation.
+// list with real prices, availability and freshness/source instead. Quick-action tiles need a signed-in
+// customer (RLS is customer-scoped for all of C3–C7), so guests see a "sign in first" prompt instead.
 import { formatMoney } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
@@ -17,8 +17,8 @@ import { timeAgo } from "@/lib/time-ago";
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: PricesData };
 // href: null until that screen is built (C2/C6/C7 still ahead) — same one-screen-at-a-time order as O1–O11.
 const QUICK_ACTIONS: { icon: string; label: string; href: string | null }[] = [
-  { icon: "💬", label: "الشكاوى", href: null }, { icon: "🎁", label: "العروض", href: null },
-  { icon: "🧾", label: "فواتيري", href: "/invoices" }, { icon: "🚗", label: "سياراتي", href: null },
+  { icon: "💬", label: "الشكاوى", href: "/rewards?tab=complaints" }, { icon: "🎁", label: "العروض", href: "/rewards" },
+  { icon: "🧾", label: "فواتيري", href: "/invoices" }, { icon: "🚗", label: "سياراتي", href: "/vehicles" },
 ];
 
 export default function HomePage() {
