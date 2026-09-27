@@ -23,7 +23,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/reports", label: "التقارير والتحليلات", ready: true },
   { href: "/expenses", label: "المصاريف والموردون", ready: true },
   { href: "/complaints", label: "الشكاوى والبلاغات", ready: true },
-  { href: "/settings", label: "الإعدادات والمستخدمون", ready: false },
+  { href: "/settings", label: "الإعدادات والمستخدمون", ready: true },
 ];
 
 type State =
