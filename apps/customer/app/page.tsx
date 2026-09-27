@@ -15,9 +15,10 @@ import { supabase } from "@/lib/supabase";
 import { timeAgo } from "@/lib/time-ago";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: PricesData };
-const QUICK_ACTIONS = [
-  { icon: "💬", label: "الشكاوى" }, { icon: "🎁", label: "العروض" },
-  { icon: "🧾", label: "فواتيري" }, { icon: "🚗", label: "سياراتي" },
+// href: null until that screen is built (C2/C6/C7 still ahead) — same one-screen-at-a-time order as O1–O11.
+const QUICK_ACTIONS: { icon: string; label: string; href: string | null }[] = [
+  { icon: "💬", label: "الشكاوى", href: null }, { icon: "🎁", label: "العروض", href: null },
+  { icon: "🧾", label: "فواتيري", href: "/invoices" }, { icon: "🚗", label: "سياراتي", href: null },
 ];
 
 export default function HomePage() {
@@ -67,12 +68,13 @@ export default function HomePage() {
       </header>
 
       <div className="grid grid-cols-4 gap-2">
-        {QUICK_ACTIONS.map((a) => (
-          <button key={a.label} type="button" disabled title="قيد الإعداد — قريباً"
-            className="flex flex-col items-center gap-1 rounded-lg bg-surface-card p-3 text-body-small-12 text-text-secondary shadow-card disabled:opacity-50">
-            <span aria-hidden className="text-heading-h2-20">{a.icon}</span>{a.label}
-          </button>
-        ))}
+        {QUICK_ACTIONS.map((a) => {
+          const content = <><span aria-hidden className="text-heading-h2-20">{a.icon}</span>{a.label}</>;
+          const tileClass = "flex flex-col items-center gap-1 rounded-lg bg-surface-card p-3 text-body-small-12 text-text-secondary shadow-card";
+          if (a.href && signedIn) return <Link key={a.label} href={a.href} className={tileClass}>{content}</Link>;
+          if (!signedIn) return <Link key={a.label} href="/login" title="سجّل الدخول لعرض هذا القسم" className={tileClass}>{content}</Link>;
+          return <button key={a.label} type="button" disabled title="قيد الإعداد — قريباً" className={`${tileClass} disabled:opacity-50`}>{content}</button>;
+        })}
       </div>
 
       <div role="tablist" aria-label="الوقود" className="flex flex-wrap gap-2">
