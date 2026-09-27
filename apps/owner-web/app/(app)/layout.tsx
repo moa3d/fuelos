@@ -20,7 +20,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/prices", label: "أسعار الوقود", ready: true },
   { href: "/ledger", label: "القيود المحاسبية", ready: true },
   { href: "/customers", label: "العملاء والديون", ready: true },
-  { href: "/reports", label: "التقارير والتحليلات", ready: false },
+  { href: "/reports", label: "التقارير والتحليلات", ready: true },
   { href: "/expenses", label: "المصاريف والموردون", ready: true },
   { href: "/complaints", label: "الشكاوى والبلاغات", ready: false },
   { href: "/settings", label: "الإعدادات والمستخدمون", ready: false },
