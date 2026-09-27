@@ -24,6 +24,9 @@ export async function officeAccess(): Promise<OfficeAccess> {
   const { data: { session } } = await supabase().auth.getSession();
   const userId = session?.user.id;
   if (!userId) return { kind: "signed-out" };
+  // activates any 'invited' membership from invite-station-member before reading the roster below, so a
+  // freshly-invited owner/accountant/shift manager sees the app right after signing in, not after a reload
+  try { await supabase().rpc("accept_station_invites"); } catch { /* best-effort */ }
   const { data, error } = await supabase()
     .from("station_members")
     .select("station_id, role, status, display_name, stations(name, currency_code)")

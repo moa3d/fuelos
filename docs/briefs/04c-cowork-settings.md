@@ -2,6 +2,11 @@
 
 Written by Claude Code on 2026-09-27 while building O11 «الإعدادات». Needs the Supabase connection (a new
 Edge Function, and/or a SECURITY DEFINER view over `auth.users`), so it goes through Claude in Cowork.
+**Status (2026-09-27): done** (`20260927000200_complaints_invoices_members.sql` + the `invite-station-member`
+Edge Function). Both wired into O11: the users table shows «آخر دخول» via `station_members_activity`, «+ دعوة
+مستخدم» calls the Edge Function, and `accept_station_invites()` runs once on every office sign-in
+(`apps/owner-web/lib/office.ts`).
+
 **Nothing here blocks O11**: managing an *existing* member's role/status, setting an attendant's PIN
 (`set_member_pin`, already built), and editing the station's tolerance limits (`cash_tolerance`,
 `stock_tolerance_l`, `max_shift_hours`, `default_credit_limit`, `offline_max_ops`) all work today as owner-only

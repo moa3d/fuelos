@@ -2,6 +2,8 @@
 
 Written by Claude Code on 2026-09-26 while building S8 «بيع آجل لشركة» and S9 «تجاوز الحد». Needs the Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks S8/S9**: the screens already work with today's `lookup_company_for_sale` and show the extra parts only when the fields are present.
 
+**Status (2026-09-27): done.** Cowork extended `lookup_company_for_sale` (see `20260926000400_company_lookup_details.sql`); the worker app shows the added fields.
+
 ## What the screens need that the RPC does not return yet
 `lookup_company_for_sale(p_station, p_query)` returns `company_id, name, status, remaining_credit, vehicle_id, vehicle_label, plate`. S8.png also shows:
 

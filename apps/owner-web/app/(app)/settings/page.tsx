@@ -2,16 +2,18 @@
 // O11 — الإعدادات (design/screens/O11.png). Owner-only writes. Scoped to the two sub-tabs that are real, data-
 // backed settings today — «المستخدمون والصلاحيات» and «حدود التسامح» — the other three (المحطة، الخزانات
 // والمضخات، الإشعارات) are placeholders. The permission list is read-only: roles are fixed in RLS/RPCs, not a
-// configurable matrix, so this documents them rather than pretending they're editable toggles.
+// configurable matrix, so this documents them rather than pretending they're editable toggles. Inviting a user
+// goes through the invite-station-member Edge Function (Cowork); the app never holds the service role.
 import { AlertBanner, Button, cx, Input, StatusBadge } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import {
-  changeRole, loadSettings, setAttendantPin, setMemberStatus, updateTolerances,
+  changeRole, inviteMember, loadSettings, setAttendantPin, setMemberStatus, updateTolerances,
   type MemberRow, type Outcome, type SettingsData, type Tolerances,
 } from "@/lib/settings-data";
 import {
   canSetPin, CAPABILITIES, isSelfRow, matchesSearch, ROLE_LABEL, statusBadge, type MemberRole,
 } from "@/lib/settings-rules";
+import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
@@ -29,6 +31,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("users");
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [tick, setTick] = useState(0);
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -51,7 +54,7 @@ export default function SettingsPage() {
           <h1 className="text-display-32">الإعدادات</h1>
           <p className="text-body-regular-14 text-text-secondary">{current.stationName} · الفرع الرئيسي</p>
         </div>
-        <Button variant="action" disabled title="دعوة مستخدم جديد تحتاج دالة خادم تُنشئ له حساباً — بانتظار Cowork (docs/briefs/04c)">
+        <Button variant="action" disabled={!canManage} title={canManage ? undefined : "دعوة مستخدمين متاحة لصاحب المحطة فقط"} onClick={() => setInviting(true)}>
           + دعوة مستخدم
         </Button>
       </header>
@@ -78,7 +81,7 @@ export default function SettingsPage() {
               تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.
             </AlertBanner>
           )}
-          {load.status === "ready" && <UsersTab data={load.data} canManage={canManage} stationId={current.stationId} userId={userId} onChanged={refresh} />}
+          {load.status === "ready" && <UsersTab data={load.data} canManage={canManage} stationId={current.stationId} userId={userId} now={Date.parse(load.data.fetchedAt)} onChanged={refresh} />}
         </>
       )}
 
@@ -91,6 +94,72 @@ export default function SettingsPage() {
           {load.status === "ready" && <TolerancesTab tolerances={load.data.tolerances} canManage={canManage} stationId={current.stationId} onChanged={refresh} />}
         </>
       )}
+
+      {inviting && <InviteModal stationId={current.stationId} onClose={() => setInviting(false)} onDone={() => { setInviting(false); refresh(); }} />}
+    </div>
+  );
+}
+
+// ---------- invite a user ----------
+function InviteModal({ stationId, onClose, onDone }: { stationId: string; onClose: () => void; onDone: () => void }) {
+  const [role, setRole] = useState<MemberRole>("attendant");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [done, setDone] = useState<{ status: "invited" | "active"; emailSent: boolean }>();
+  const emailRequired = role !== "attendant";
+
+  async function send() {
+    setBusy(true); setError(undefined);
+    const res = await inviteMember({ stationId, role, displayName: name.trim(), email: email.trim() || null })
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    if (!res.ok) { setError(res.message); setBusy(false); return; }
+    setDone({ status: res.status, emailSent: res.emailSent });
+    setBusy(false);
+  }
+
+  return (
+    <Modal title="دعوة مستخدم" onClose={onClose}>
+      {done ? (
+        <div className="flex flex-col gap-3">
+          <AlertBanner tone="success" title={done.status === "active" ? "تمت إضافة الحساب" : "أُرسلت الدعوة"}>
+            {done.status === "active"
+              ? "الحساب نشط الآن. اضبط له رمز دخول من قائمة «⋯» في جدول المستخدمين."
+              : done.emailSent ? "سيصل بريد للانضمام. يظهر كـ«دعوة معلّقة» حتى يسجّل الدخول." : "أُضيف حساب موجود مسبقاً إلى المحطة مباشرة."}
+          </AlertBanner>
+          <Button variant="secondary" onClick={onDone}>تم</Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {error && <AlertBanner tone="danger" title={error} />}
+          <div className="flex flex-col gap-1">
+            <label className="text-label-12 text-text-secondary">الدور</label>
+            <select value={role} onChange={(e) => setRole(e.target.value as MemberRole)}
+              className="h-11 rounded-md border border-border-strong bg-surface-card px-3 text-body-large-16">
+              {(["owner", "accountant", "shift_manager", "attendant"] as MemberRole[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </select>
+          </div>
+          <Input label="الاسم" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label={emailRequired ? "البريد الإلكتروني" : "البريد الإلكتروني (اختياري)"} dir="ltr" type="email" autoComplete="off"
+            value={email} onChange={(e) => setEmail(e.target.value)}
+            helper={emailRequired ? "لازم لإرسال دعوة تسجيل الدخول" : "بلا بريد: يمكنك تسجيل دخوله برمز عند الجهاز مباشرة"} />
+          <Button variant="action" size="lg" block disabled={busy || !name.trim() || (emailRequired && !email.trim())} onClick={send}>
+            {busy ? "جارٍ الإرسال…" : "إرسال الدعوة"}
+          </Button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="w-full max-w-md rounded-lg bg-surface-card p-6 shadow-raised">
+        <div className="mb-4 flex items-center justify-between"><h2 className="text-heading-h2-20">{title}</h2><button type="button" onClick={onClose} aria-label="إغلاق" className="flex size-8 items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted">✕</button></div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -100,8 +169,8 @@ function ComingSoon({ text }: { text: string }) {
 }
 
 // ---------- users & permissions ----------
-function UsersTab({ data, canManage, stationId, userId, onChanged }: {
-  data: SettingsData; canManage: boolean; stationId: string; userId: string; onChanged: () => void;
+function UsersTab({ data, canManage, stationId, userId, now, onChanged }: {
+  data: SettingsData; canManage: boolean; stationId: string; userId: string; now: number; onChanged: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [refRole, setRefRole] = useState<MemberRole>("attendant");
@@ -143,12 +212,13 @@ function UsersTab({ data, canManage, stationId, userId, onChanged }: {
             <tr className="border-b border-border-default text-body-small-12 text-text-secondary">
               <th className="p-2 text-start font-normal">المستخدم</th>
               <th className="p-2 text-start font-normal">الدور</th>
+              <th className="p-2 text-start font-normal">آخر دخول</th>
               <th className="p-2 text-start font-normal">الحالة</th>
               <th className="p-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border-default">
-            {shown.map((m) => <MemberRowView key={m.userId} m={m} canManage={canManage} self={isSelfRow(m.userId, userId)} stationId={stationId} onChanged={onChanged} />)}
+            {shown.map((m) => <MemberRowView key={m.userId} m={m} canManage={canManage} self={isSelfRow(m.userId, userId)} stationId={stationId} now={now} onChanged={onChanged} />)}
           </tbody>
         </table>
         {shown.length === 0 && <p className="p-4 text-center text-body-regular-14 text-text-secondary">لا نتائج.</p>}
@@ -157,8 +227,8 @@ function UsersTab({ data, canManage, stationId, userId, onChanged }: {
   );
 }
 
-function MemberRowView({ m, canManage, self, stationId, onChanged }: {
-  m: MemberRow; canManage: boolean; self: boolean; stationId: string; onChanged: () => void;
+function MemberRowView({ m, canManage, self, stationId, now, onChanged }: {
+  m: MemberRow; canManage: boolean; self: boolean; stationId: string; now: number; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -177,6 +247,7 @@ function MemberRowView({ m, canManage, self, stationId, onChanged }: {
     <tr>
       <td className="p-2">{m.name}</td>
       <td className="p-2"><StatusBadge tone="info">{ROLE_LABEL[m.role]}</StatusBadge></td>
+      <td className="p-2 text-text-secondary">{m.lastSignInAt ? timeAgo(m.lastSignInAt, now) : "لم يسجّل الدخول بعد"}</td>
       <td className="p-2"><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
       <td className="p-2 text-end">
         {!self && canManage && (

@@ -2,6 +2,8 @@
 
 Written by Claude Code on 2026-09-27 while building O6 «التقارير والتحليلات». Needs the Supabase connection (a new Edge Function), so it goes through Claude in Cowork. **Nothing here blocks O6**: every report card and the profit & loss table are built from data already readable under RLS (`journal_entries`/`journal_lines`/`accounts`, `dashboard_summary()`, `sales`/`company_payments`/`company_accounts`), and «تصدير CSV» is a client-side download with no server involved.
 
+**Status (2026-09-27): waiting on the owner's email-provider decision.** Everything else in O6 is unaffected; «مشاركة مع المحاسب» stays disabled with an explanation until Cowork wires up an email sender.
+
 ## What's missing: «مشاركة مع المحاسب»
 O6.png shows a button that sends the open report (or an attached file) to the accountant's email/phone. There is no Edge Function or RPC for sending mail/SMS anywhere in the project yet, so the button in O6 is disabled with an explanation instead of pretending to send anything.
 

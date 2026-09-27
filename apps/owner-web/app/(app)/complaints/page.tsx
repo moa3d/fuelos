@@ -222,7 +222,7 @@ function Detail({ row, stationId, role, userId, currency, now, onChanged }: {
               ))}
             </ul>
           )}
-          <InvoiceCorrectionForm invoiceId={detail.invoice.id} role={role} userId={userId} onDone={onChanged} />
+          <InvoiceCorrectionForm invoiceId={detail.invoice.id} role={role} cancelled={detail.invoice.status === "cancelled"} onDone={onChanged} />
         </section>
       )}
 
@@ -278,18 +278,20 @@ function Detail({ row, stationId, role, userId, currency, now, onChanged }: {
 
 const INVOICE_STATUS_LABEL: Record<string, string> = { pending: "قيد الإصدار", confirmed: "مؤكَّدة", corrected: "مصحَّحة", cancelled: "ملغاة" };
 
-function InvoiceCorrectionForm({ invoiceId, role, userId, onDone }: { invoiceId: string; role: string; userId: string; onDone: () => void }) {
+function InvoiceCorrectionForm({ invoiceId, role, cancelled, onDone }: { invoiceId: string; role: string; cancelled: boolean; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
-  const allowed = canCorrectInvoice(role);
+  const allowed = canCorrectInvoice(role) && !cancelled;
 
   if (!open) {
     return (
       <div className="mt-3">
-        <Button variant="secondary" size="md" disabled={!allowed} title={allowed ? undefined : "تسجيل تصحيح الفاتورة متاح لصاحب المحطة فقط"} onClick={() => setOpen(true)}>
+        <Button variant="secondary" size="md" disabled={!allowed}
+          title={cancelled ? "الفاتورة ملغاة ولا يمكن تصحيحها" : !canCorrectInvoice(role) ? "تسجيل تصحيح الفاتورة متاح لصاحب المحطة فقط" : undefined}
+          onClick={() => setOpen(true)}>
           تسجيل تصحيح على الفاتورة
         </Button>
       </div>
@@ -299,12 +301,12 @@ function InvoiceCorrectionForm({ invoiceId, role, userId, onDone }: { invoiceId:
     <div className="mt-3 flex flex-col gap-2 rounded-md border border-border-default p-3">
       <Input label="فرق المبلغ (سالب لتخفيض الفاتورة)" dir="ltr" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <TextArea label="السبب (يظهر في سجل الفاتورة)" required value={reason} onChange={(e) => setReason(e.target.value)} />
-      <p className="text-body-small-12 text-text-secondary">يسجَّل التصحيح في سجل الفاتورة فوراً. إصدار ملف فاتورة جديد غير متاح بعد.</p>
+      <p className="text-body-small-12 text-text-secondary">يسجَّل التصحيح فوراً وتصبح الفاتورة «مصحَّحة». إصدار ملف فاتورة جديد غير متاح بعد.</p>
       {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
       <div className="flex gap-2">
         <Button variant="action" disabled={busy || !reason.trim() || !amount.trim()} onClick={async () => {
           setBusy(true); setMsg(undefined);
-          const res = await recordInvoiceCorrection(invoiceId, userId, reason.trim(), amount.trim()).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+          const res = await recordInvoiceCorrection(invoiceId, reason.trim(), amount.trim()).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
           if (res.ok) { setOpen(false); onDone(); return; }
           setMsg(res.message); setBusy(false);
         }}>{busy ? "جارٍ التسجيل…" : "تسجيل التصحيح"}</Button>

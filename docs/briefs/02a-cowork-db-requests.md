@@ -2,6 +2,8 @@
 
 Written by Claude Code on 2026-09-26 while building S1 «بداية المناوبة». These need the Supabase connection, so they go through Claude in Cowork. Nothing here blocks S1: the screen works without them and uses the server's `FUELOS_PUMP_BUSY` refusal instead.
 
+**Status (2026-09-27): done.** Cowork shipped `pump_board`, in use since S1/O3 (`apps/owner-web/lib/sales-data.ts`).
+
 ## 1. Pump board for S1 (read RPC)
 S1.png shows each pump's state («متاحة» / «مع يوسف») and the opening cash handed over by the previous shift («50,000 ل.س من مناوبة محمد خليل»). An attendant cannot read other attendants' shifts through RLS, so the app cannot show either today.
 

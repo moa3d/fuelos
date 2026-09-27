@@ -2,6 +2,8 @@
 
 Written by Claude Code on 2026-09-26 while building O1 «لوحة القيادة». It needs the Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks O1**: today and yesterday already work.
 
+**Status (2026-09-27): done.** Cowork shipped `station_period_bounds`/`dashboard_summary` (`20260927000100_dashboard_summary.sql`); O1, O3, O6 all use it, and O6's self-computed profit & loss was verified to match `estimated_profit` exactly.
+
 ## What O1 does today (apps/owner-web/lib/dashboard.ts)
 - Sales and expected cash: one `shift_summary()` call per shift of the day, added up on the page.
 - Estimated profit: from posted journal lines of that day (4xxx − 5xxx). This covers approved shifts and posted expenses only.

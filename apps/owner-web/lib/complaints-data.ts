@@ -1,9 +1,11 @@
 // O10 «شكاوى الزبائن والبلاغات». Owner/shift_manager only (RLS: complaints_read allows owner + shift_manager,
 // not accountant). Replies and closing are plain table writes (complaints_station_update lets station staff set
-// any status). Recording an invoice correction is owner/accountant only (invoice_corrections RLS) — on this
-// screen that means owner only, since accountant can't open it at all. There is no RPC or RLS path to flip
-// invoices.status to 'corrected', and no PDF regeneration yet (see docs/briefs/04b-cowork-complaints.md), so
-// this only records the correction row — it does not claim to reissue the invoice file.
+// any status; complaint_messages_write now checks author_side matches who the caller actually is). Recording an
+// invoice correction goes through record_invoice_correction() (owner/accountant — on this screen that means
+// owner only, since accountant can't open it at all), which sets invoices.status = 'corrected' itself. There is
+// still no invoice PDF regeneration (deferred to the Storage milestone — docs/briefs/04b-cowork-complaints.md).
+// Overdue cases escalate to the platform automatically every 15 minutes (escalate_overdue_complaints, pg_cron);
+// nothing here needs to trigger that.
 import { errorMessage } from "@fuelos/core";
 import type { ComplaintKind, ComplaintStatus } from "./complaint-rules";
 import { supabase } from "./supabase";
@@ -126,6 +128,8 @@ export type Outcome = { ok: true } | { ok: false; message: string };
 const LOCAL: Record<string, string> = {
   FUELOS_PERMISSION_DENIED: "هذا الإجراء متاح لصاحب المحطة أو مدير المناوبة",
   "42501": "هذا الإجراء متاح لصاحب المحطة أو مدير المناوبة",
+  FUELOS_REASON_REQUIRED: "اكتب سبب التصحيح",
+  FUELOS_BAD_REQUEST: "هذه الفاتورة ملغاة ولا يمكن تصحيحها",
 };
 function messageOf(e: { message?: string; code?: string } | null): string {
   const code = e?.message?.startsWith("FUELOS_") ? e.message.trim() : e?.code === "42501" ? "FUELOS_PERMISSION_DENIED" : undefined;
@@ -149,8 +153,9 @@ export async function closeResolved(complaintId: string): Promise<Outcome> {
   return error ? { ok: false, message: messageOf(error) } : { ok: true };
 }
 
-/** Records the correction (owner/accountant RLS); does not reissue the invoice file (no Storage/PDF yet). */
-export async function recordInvoiceCorrection(invoiceId: string, authorId: string, reason: string, amountDelta: string): Promise<Outcome> {
-  const { error } = await supabase().from("invoice_corrections").insert({ invoice_id: invoiceId, created_by: authorId, reason, amount_delta: amountDelta }).abortSignal(signal());
+/** Records the correction and sets invoices.status = 'corrected' in one step (owner/accountant RLS). Doesn't
+ * reissue the invoice file — no Storage/PDF capability yet. */
+export async function recordInvoiceCorrection(invoiceId: string, reason: string, amountDelta: string): Promise<Outcome> {
+  const { error } = await supabase().rpc("record_invoice_correction", { p_invoice: invoiceId, p_reason: reason, p_amount_delta: amountDelta }).abortSignal(signal());
   return error ? { ok: false, message: messageOf(error) } : { ok: true };
 }
