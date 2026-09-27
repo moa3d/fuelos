@@ -19,7 +19,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/tanks", label: "الخزانات والمخزون", ready: true },
   { href: "/prices", label: "أسعار الوقود", ready: true },
   { href: "/ledger", label: "القيود المحاسبية", ready: false },
-  { href: "/customers", label: "العملاء والديون", ready: false },
+  { href: "/customers", label: "العملاء والديون", ready: true },
   { href: "/reports", label: "التقارير والتحليلات", ready: false },
   { href: "/expenses", label: "المصاريف والموردون", ready: false },
   { href: "/complaints", label: "الشكاوى والبلاغات", ready: false },
