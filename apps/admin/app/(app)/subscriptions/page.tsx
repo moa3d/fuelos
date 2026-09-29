@@ -7,6 +7,7 @@
 import { formatDay, formatMoney, formatNumber } from "@fuelos/core";
 import { AlertBanner, Button, Input, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { subscriptionBadge } from "@/lib/dashboard-rules";
 import { centsStr } from "@/lib/money";
 import { featureChecklist } from "@/lib/subscriptions-rules";
@@ -233,7 +234,9 @@ function PaymentModal({ subscriptionId, stationName, admin, onClose, onChanged }
     onChanged();
   }
 
-  return (
+  // rendered via a portal: the trigger sits inside a <tr>, and a <tr> can't validly contain a bare <div> —
+  // the fixed-position overlay doesn't care where in the DOM it lives, so it mounts on document.body instead.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="الدفعات">
       <div className="w-full max-w-md rounded-lg bg-surface-card p-6 shadow-raised">
         <div className="mb-4 flex items-center justify-between">
@@ -275,7 +278,8 @@ function PaymentModal({ subscriptionId, stationName, admin, onClose, onChanged }
           <Button variant="action" disabled={!admin || busy || !amount.trim()} onClick={submit}>{busy ? "جارٍ التسجيل…" : "تسجيل الدفعة"}</Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
