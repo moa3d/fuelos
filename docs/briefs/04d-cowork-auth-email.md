@@ -1,5 +1,12 @@
 # Brief 04d — email OTP sending is rate-limited (request for Cowork)
 
+**Decision (2026-09-29):** the owner already has a Resend account — please configure Supabase's custom SMTP
+with it (Authentication → Emails → SMTP Settings): host `smtp.resend.com`, port `465` (or `587`), username
+`resend`, password = a Resend API key (the owner will provide it directly to Cowork, not pasted into this
+repo). Sender email must be `@` a domain verified in Resend (Resend's own dashboard shows the DNS records to
+add) — sending from an unverified domain is the likely cause of 04d's "arrived once, then silent"/spam-filtered
+symptom below. Once set, this also unblocks 04a's «مشاركة مع المحاسب».
+
 Written by Claude Code on 2026-09-27 while building the customer app's L3 (email OTP login). This is a
 Supabase project **setting**, not a migration, so it goes through Cowork/the Supabase dashboard, not a SQL
 file. **This does block L3 end-to-end testing** (the code itself is complete and correct — the request just
