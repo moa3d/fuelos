@@ -10,10 +10,10 @@ import { AdminContext } from "./admin-context";
 
 const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/dashboard", label: "لوحة المنصة", ready: true },
-  { href: "/stations", label: "المحطات", ready: false },
+  { href: "/stations", label: "المحطات", ready: true },
   { href: "/stations/new", label: "انضمام محطة", ready: true },
   { href: "/subscriptions", label: "الاشتراكات والباقات", ready: true },
-  { href: "/support", label: "تذاكر الدعم", ready: false },
+  { href: "/support", label: "تذاكر الدعم", ready: true },
   { href: "/audit", label: "الصلاحيات والسجلات", ready: true },
 ];
 
@@ -77,7 +77,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <nav aria-label="الأقسام" className="flex-1 overflow-y-auto px-3">
             <ul className="flex flex-col gap-1">
               {NAV.map((item) => {
-                const active = pathname.startsWith(item.href);
+                // exact match for "/stations" so it doesn't also light up on "/stations/new"'s own entry
+                const active = item.href === "/stations" ? pathname === "/stations" : pathname.startsWith(item.href);
                 return (
                   <li key={item.href}>
                     {item.ready ? (
