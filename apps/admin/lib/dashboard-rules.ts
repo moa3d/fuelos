@@ -53,3 +53,17 @@ export function deviceSyncStale(latestSyncAt: string | null, nowMs: number, thre
   if (!latestSyncAt) return false;
   return nowMs - Date.parse(latestSyncAt) > thresholdDays * 86_400_000;
 }
+
+/** «خريطة المحطات» groups stations by city, not literal coordinates — no lat/long shown here needs a
+ * geographic map (docs/briefs/05a already flagged that as a separate, later thing); A1's own mockup is really
+ * a health-by-region view: past-due billing is the serious («مشكلة») case, everything else this dashboard
+ * already flags (trial ending, stale device sync) is a milder («تحتاج متابعة») one. */
+export function isSeriousAttentionReason(reason: string): boolean {
+  return reason === "دفعة الاشتراك متأخرة";
+}
+
+export function cityHealth(reasons: string[]): { tone: Tone; label: string } {
+  if (reasons.some(isSeriousAttentionReason)) return { tone: "danger", label: "مشكلة" };
+  if (reasons.length > 0) return { tone: "warning", label: "تحتاج متابعة" };
+  return { tone: "success", label: "سليمة" };
+}

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { daysUntil, deviceSyncStale, mrrCents, subscriptionBadge, ticketBadge, trialEndingSoon } from "./dashboard-rules.ts";
+import {
+  cityHealth, daysUntil, deviceSyncStale, isSeriousAttentionReason, mrrCents, subscriptionBadge, ticketBadge, trialEndingSoon,
+} from "./dashboard-rules.ts";
 
 test("MRR counts only active subscriptions (matches mrr_snapshots), multiplies per-station plans by station count", () => {
   const subs = [
@@ -41,4 +43,16 @@ test("device sync staleness: past the threshold only; never-synced (null) isn't 
   assert.equal(deviceSyncStale("2026-09-20T00:00:00Z", now), true); // 4 days ago
   assert.equal(deviceSyncStale("2026-09-22T00:00:00Z", now), false); // 2 days ago
   assert.equal(deviceSyncStale(null, now), false);
+});
+
+test("only past-due billing counts as a serious attention reason", () => {
+  assert.equal(isSeriousAttentionReason("دفعة الاشتراك متأخرة"), true);
+  assert.equal(isSeriousAttentionReason("الفترة التجريبية تنتهي قريباً"), false);
+  assert.equal(isSeriousAttentionReason("لم تُزامن أجهزتها منذ 3 أيام"), false);
+});
+
+test("a city's health: past-due anywhere in it is «مشكلة», any other issue is «تحتاج متابعة», none is «سليمة»", () => {
+  assert.deepEqual(cityHealth([]), { tone: "success", label: "سليمة" });
+  assert.deepEqual(cityHealth(["الفترة التجريبية تنتهي قريباً"]), { tone: "warning", label: "تحتاج متابعة" });
+  assert.deepEqual(cityHealth(["لم تُزامن أجهزتها منذ 3 أيام", "دفعة الاشتراك متأخرة"]), { tone: "danger", label: "مشكلة" });
 });

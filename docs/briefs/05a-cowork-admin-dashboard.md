@@ -7,10 +7,14 @@ by that organization's station count), open/urgent support tickets, past-due and
 and the self-granted ≤24h «طلب وصول مؤقت» (a real `access_grants` insert, RLS-enforced) all work today.
 
 **Status (2026-09-29): done** (docs/briefs/06a) — all three items delivered: `stations.lat`/`lng` (also on
-`public_station_prices`, now used by the customer app's C1 map link), `devices.last_sync_at`/`pending_ops`
+`public_station_prices`, now used by the customer app's C1/C2 map links), `devices.last_sync_at`/`pending_ops`
 readable via `devices_platform_read`, and the monthly `mrr_snapshots` table (`snapshot_mrr()` on a pg_cron
 schedule). A1 now flags stations with no device sync in 3+ days; A3 charts the 6-month MRR trend from
-`mrr_snapshots`. The map-with-pins UI itself isn't built yet (only the data exists) — a later slice.
+`mrr_snapshots`. «خريطة المحطات» turned out not to need lat/long at all once I looked at `design/screens/A1.png`
+closely — it's a stylized region/health view (stations grouped by city, colored by whether any of them has a
+serious issue), not a literal map with pins, so A1 now builds that straight from `stations.city` and the same
+attention reasons the dashboard already computes. A literal geographic map (real tiles, pins at lat/lng) is
+still a separate, later thing if the product wants one.
 
 ## What's missing
 `design/screens/A1.png` shows three things with no backing data:

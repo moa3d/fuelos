@@ -1,8 +1,9 @@
 "use client";
 // A1 — لوحة المنصة (design/screens/A1.png). Real KPIs from stations/station_members/subscriptions/support_tickets
-// (is_platform_staff() RLS grants full read). No map (stations have no lat/long), no device-sync signal, and no
-// 6-month revenue history — see docs/briefs/05a-cowork-admin-dashboard.md. «طلب وصول مؤقت» is a real, audited,
-// self-granted, ≤24h access_grants row (never someone else's access — grants_create RLS enforces both).
+// (is_platform_staff() RLS grants full read). «خريطة المحطات» groups by city with a health dot (past-due
+// billing is the serious case) — A1's own mockup is a stylized region view, not a literal geographic map, so
+// this needs no map library or lat/long. «طلب وصول مؤقت» is a real, audited, self-granted, ≤24h access_grants
+// row (never someone else's access — grants_create RLS enforces both).
 import { formatMoney, formatNumber } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useState } from "react";
@@ -94,6 +95,25 @@ export default function DashboardPage() {
               )}
             </section>
           </div>
+
+          <section className="rounded-lg bg-surface-card p-6 shadow-card">
+            <h2 className="mb-3 text-heading-h2-20">خريطة المحطات</h2>
+            {load.data.cityGroups.length === 0 ? (
+              <p className="text-body-regular-14 text-text-secondary">لا توجد محطات بعد.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-3">
+                {load.data.cityGroups.map((c) => (
+                  <li key={c.city} className="flex min-w-40 flex-col gap-1.5 rounded-lg border border-border-default bg-surface-muted px-4 py-3">
+                    <span className="text-body-strong-14">{c.city}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-body-small-12 text-text-secondary">{c.stationCount} محطة</span>
+                      <StatusBadge tone={c.tone}>{c.label}</StatusBadge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
           <section className="rounded-lg border border-border-default bg-surface-card p-6 shadow-card">
             <h2 className="text-heading-h3-16">فصل الصحة التقنية عن المال</h2>

@@ -1,9 +1,10 @@
 // A1 «لوحة المنصة». Platform-staff-only reads (station_read/members_read/subs_admin/tickets_read/devices_platform_read:
 // is_platform_staff() grants full visibility). Device sync health and MRR (docs/briefs/06a, delivered) feed the
-// "تحتاج إجراء" list alongside subscriptions. Still missing: the map (no lat/long on stations shown here — see
-// A2, which now sets it for new stations) and «طلب وصول مؤقت» stays real, unrelated to any of this.
+// "تحتاج إجراء" list alongside subscriptions. «خريطة المحطات» groups by city, not real coordinates — A1's own
+// mockup is really a health-by-region view, not a literal map, so no map library/lat-long is needed for it (a
+// real geographic map is still a separate, later thing). «طلب وصول مؤقت» stays real, unrelated to any of this.
 import {
-  deviceSyncStale, mrrCents, trialEndingSoon, type SubForMrr, type SubStatus, type TicketPriority, type TicketStatus,
+  cityHealth, deviceSyncStale, mrrCents, trialEndingSoon, type SubForMrr, type SubStatus, type TicketPriority, type TicketStatus, type Tone,
 } from "./dashboard-rules";
 import { cents } from "./money";
 import { supabase } from "./supabase";
@@ -12,6 +13,7 @@ const signal = () => AbortSignal.timeout(20_000);
 
 export type Ticket = { id: string; number: number; subject: string; priority: TicketPriority; status: TicketStatus; stationName: string | null; createdAt: string };
 export type AttentionItem = { stationId: string; stationName: string; reason: string };
+export type CityGroup = { city: string; stationCount: number; tone: Tone; label: string };
 
 export type DashboardData = {
   activeStations: number; totalStations: number;
@@ -20,13 +22,14 @@ export type DashboardData = {
   openTickets: number; urgentTickets: number;
   tickets: Ticket[];
   attention: AttentionItem[];
+  cityGroups: CityGroup[];
   fetchedAt: string;
 };
 
 export async function loadDashboard(): Promise<DashboardData> {
   const sb = supabase();
   const [stationsRes, membersRes, subsRes, ticketsRes, devicesRes] = await Promise.all([
-    sb.from("stations").select("id, name, status, organization_id").abortSignal(signal()),
+    sb.from("stations").select("id, name, city, status, organization_id").abortSignal(signal()),
     sb.from("station_members").select("user_id").eq("status", "active").abortSignal(signal()),
     sb.from("subscriptions").select("id, organization_id, status, trial_ends_at, plans(monthly_price, per_station)").abortSignal(signal()),
     sb.from("support_tickets").select("id, number, subject, priority, status, station_id, created_at").neq("status", "resolved").order("created_at", { ascending: false }).abortSignal(signal()),
@@ -74,6 +77,23 @@ export async function loadDashboard(): Promise<DashboardData> {
     stationName: t.station_id ? stationName.get(t.station_id as string) ?? null : null, createdAt: t.created_at ?? "",
   }));
 
+  // «خريطة المحطات»: grouped by city, not real coordinates (stations have no lat/long — docs/briefs/05a).
+  const reasonsByCity = new Map<string, string[]>();
+  const countByCity = new Map<string, number>();
+  for (const st of stations) {
+    const city = (st.city as string | null) ?? "بلا مدينة";
+    countByCity.set(city, (countByCity.get(city) ?? 0) + 1);
+  }
+  for (const a of attention) {
+    const st = stations.find((s) => s.id === a.stationId);
+    const city = (st?.city as string | null) ?? "بلا مدينة";
+    const arr = reasonsByCity.get(city);
+    if (arr) arr.push(a.reason); else reasonsByCity.set(city, [a.reason]);
+  }
+  const cityGroups: CityGroup[] = [...countByCity.entries()]
+    .map(([city, stationCount]) => ({ city, stationCount, ...cityHealth(reasonsByCity.get(city) ?? []) }))
+    .sort((a, b) => b.stationCount - a.stationCount);
+
   return {
     activeStations: stations.filter((s) => s.status === "active").length,
     totalStations: stations.length,
@@ -83,6 +103,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     urgentTickets: tickets.filter((t) => t.priority === "high").length,
     tickets: tickets.slice(0, 6),
     attention: attention.slice(0, 6),
+    cityGroups,
     fetchedAt: new Date().toISOString(),
   };
 }
