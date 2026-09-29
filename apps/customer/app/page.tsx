@@ -1,16 +1,16 @@
 "use client";
 // C1 — الرئيسية, guest-accessible slice (design/screens/C1.png). No login required: public_station_prices is
-// granted to anon. The map/distance/rating parts of the full design need schema FuelOS doesn't have yet
-// (station lat/long, ratings, services catalog) — omitted here rather than faked; this shows a plain station
-// list with real prices, availability and freshness/source instead. Quick-action tiles need a signed-in
-// customer (RLS is customer-scoped for all of C3–C7), so guests see a "sign in first" prompt instead.
+// granted to anon. A station's location shows as a "الموقع على الخريطة" link when the owner set lat/lng
+// (docs/briefs/06a) — distance/rating/services-catalog parts of the full design still need schema FuelOS
+// doesn't have, so those stay omitted rather than faked. Quick-action tiles need a signed-in customer (RLS is
+// customer-scoped for all of C3–C7), so guests see a "sign in first" prompt instead.
 import { formatMoney } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 import { loadPrices, type PricesData } from "@/lib/prices-data";
-import { availabilityBadge } from "@/lib/prices-rules";
+import { availabilityBadge, mapUrl } from "@/lib/prices-rules";
 import { supabase } from "@/lib/supabase";
 import { timeAgo } from "@/lib/time-ago";
 
@@ -103,6 +103,11 @@ export default function HomePage() {
               <span className="text-body-strong-14">{s.name}</span>
               {s.city && <span className="text-body-small-12 text-text-secondary">{s.city}</span>}
             </div>
+            {mapUrl(s.lat, s.lng) && (
+              <a href={mapUrl(s.lat, s.lng)!} target="_blank" rel="noreferrer" className="mt-1 inline-block text-body-small-12 text-brand-primary">
+                📍 الموقع على الخريطة
+              </a>
+            )}
             <ul className="mt-3 flex flex-col gap-2">
               {s.products.map((p) => {
                 const badge = p.availability ? availabilityBadge(p.availability) : undefined;

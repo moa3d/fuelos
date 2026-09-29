@@ -1,15 +1,19 @@
 "use client";
 // C5 — سيارتي ومصروفي (design/screens/C5.png). Real fills from `sales` (not through invoices — every fill
 // counts here regardless of invoice status). Cost/km and consumption only show when two consecutive fills
-// both have a real odometer reading; otherwise "بيانات غير كافية" rather than a guess. Monthly budget and an
-// oil-change reminder aren't built — no such fields exist yet (docs/briefs/04f-cowork-vehicle-fields.md).
+// both have a real odometer reading; otherwise "بيانات غير كافية" rather than a guess. Monthly budget and the
+// oil-service reminder are the customer's own fields on `vehicles` (docs/briefs/06a) — an empty state offers
+// to set them rather than showing a fabricated number.
 import { formatMoney, formatNumber } from "@fuelos/core";
-import { AlertBanner, Button } from "@fuelos/ui";
+import { AlertBanner, Button, Input } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import {
-  averageOf, costPerKm, consumptionPer100km, distancesSinceLast, spendByMonth,
+  averageOf, costPerKm, consumptionPer100km, distancesSinceLast, kmUntilService, spendByMonth,
 } from "@/lib/vehicle-rules";
-import { loadVehicleDashboard, loadVehicles, type VehicleDashboard, type VehicleOption } from "@/lib/vehicles-data";
+import {
+  loadVehicleDashboard, loadVehicles, setMonthlyBudget, setServiceReminder,
+  type Outcome, type VehicleDashboard, type VehicleOption,
+} from "@/lib/vehicles-data";
 import { useCustomer } from "../customer-context";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "empty" } | { status: "ready"; data: VehicleDashboard };
@@ -26,7 +30,7 @@ export default function VehiclesPage() {
       (v) => { setVehicles(v); if (v.length > 0) setVehicleId(v[0].id); else setLoad({ status: "empty" }); },
       () => setLoad({ status: "error" }),
     );
-  }, [userId]);
+  }, [userId, tick]);
 
   useEffect(() => {
     if (!vehicleId || !vehicles) return;
@@ -39,6 +43,8 @@ export default function VehiclesPage() {
     );
     return () => { alive = false; };
   }, [userId, vehicleId, vehicles, tick]);
+
+  function refresh() { setTick((t) => t + 1); }
 
   return (
     <div className="mx-auto flex max-w-[480px] flex-col gap-4 p-4 pb-10">
@@ -56,17 +62,17 @@ export default function VehiclesPage() {
 
       {load.status === "loading" && <Skeleton />}
       {load.status === "error" && (
-        <AlertBanner tone="danger" title="تعذّر التحميل" action={<Button variant="secondary" onClick={() => setTick((t) => t + 1)}>إعادة المحاولة</Button>} />
+        <AlertBanner tone="danger" title="تعذّر التحميل" action={<Button variant="secondary" onClick={refresh}>إعادة المحاولة</Button>} />
       )}
       {load.status === "empty" && (
         <p className="rounded-lg bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">لا توجد سيارة مضافة إلى حسابك بعد.</p>
       )}
-      {load.status === "ready" && <Dashboard data={load.data} />}
+      {load.status === "ready" && <Dashboard data={load.data} onChanged={refresh} />}
     </div>
   );
 }
 
-function Dashboard({ data }: { data: VehicleDashboard }) {
+function Dashboard({ data, onChanged }: { data: VehicleDashboard; onChanged: () => void }) {
   const money = (v: number) => formatMoney(String(v), data.currency);
   const currentMonth = data.months[data.months.length - 1];
   const monthly = spendByMonth(data.fills, data.months);
@@ -80,6 +86,7 @@ function Dashboard({ data }: { data: VehicleDashboard }) {
   const costs = data.fills.map((f, i) => costPerKm(f.amount, distances[i]));
   const avgConsumption = averageOf(consumptions);
   const avgCost = averageOf(costs);
+  const latestOdometer = [...data.fills].reverse().find((f) => f.odometerKm !== null)?.odometerKm ?? null;
 
   if (data.fills.length === 0) {
     return <p className="rounded-lg bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">لا توجد تعبئات مسجَّلة لهذه السيارة بعد.</p>;
@@ -116,7 +123,117 @@ function Dashboard({ data }: { data: VehicleDashboard }) {
       {(avgCost === null || avgConsumption === null) && (
         <p className="text-body-small-12 text-text-secondary">تحتاج هذه الأرقام قراءتي عداد متتاليتين على الأقل — بعض تعبئاتك لم تُسجَّل معها قراءة عداد.</p>
       )}
+
+      <BudgetCard vehicleId={data.vehicle.id} budgetCents={data.vehicle.monthlyBudgetCents} spentCents={BigInt(thisMonth)} currency={data.currency} onChanged={onChanged} />
+      <ServiceCard vehicleId={data.vehicle.id} lastServiceOdometerKm={data.vehicle.lastServiceOdometerKm} serviceIntervalKm={data.vehicle.serviceIntervalKm} latestOdometer={latestOdometer} onChanged={onChanged} />
     </>
+  );
+}
+
+function BudgetCard({ vehicleId, budgetCents, spentCents, currency, onChanged }: {
+  vehicleId: string; budgetCents: bigint | null; spentCents: bigint; currency: string; onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+  const money = (c: bigint) => formatMoney((Number(c) / 100).toFixed(2), currency);
+
+  async function save() {
+    setBusy(true); setMsg(undefined);
+    const res: Outcome = await setMonthlyBudget(vehicleId, value.trim()).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (res.ok) { setEditing(false); return onChanged(); }
+    setMsg(res.message);
+  }
+
+  if (budgetCents === null && !editing) {
+    return (
+      <div className="rounded-lg bg-surface-card p-4 text-center shadow-card">
+        <p className="text-body-regular-14 text-text-secondary">لم تحدّد ميزانية شهرية بعد.</p>
+        <Button variant="secondary" size="md" className="mt-2" onClick={() => setEditing(true)}>أضف ميزانية</Button>
+      </div>
+    );
+  }
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 shadow-card">
+        <Input label="الميزانية الشهرية" dir="ltr" inputMode="decimal" suffix={currency} value={value} onChange={(e) => setValue(e.target.value)} />
+        {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
+        <div className="flex gap-2">
+          <Button variant="action" size="md" disabled={busy || !value.trim()} onClick={save}>{busy ? "…" : "حفظ"}</Button>
+          <Button variant="ghost" size="md" onClick={() => setEditing(false)}>إلغاء</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const pct = budgetCents! > 0n ? Math.min(100, Number((spentCents * 100n) / budgetCents!)) : 0;
+  const over = spentCents > budgetCents!;
+  return (
+    <div className="rounded-lg bg-surface-card p-4 shadow-card">
+      <div className="flex items-center justify-between">
+        <p className="text-body-strong-14">الميزانية الشهرية</p>
+        <button type="button" onClick={() => { setValue((Number(budgetCents) / 100).toString()); setEditing(true); }} className="text-body-small-12 text-brand-primary">تعديل</button>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-muted">
+        <div className={`h-full ${over ? "bg-status-danger" : "bg-brand-primary"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-1 text-body-small-12 text-text-secondary">
+        {money(spentCents)} / {money(budgetCents!)}{!over && ` · متبقي ${money(budgetCents! - spentCents)}`}
+      </p>
+    </div>
+  );
+}
+
+function ServiceCard({ vehicleId, lastServiceOdometerKm, serviceIntervalKm, latestOdometer, onChanged }: {
+  vehicleId: string; lastServiceOdometerKm: number | null; serviceIntervalKm: number | null; latestOdometer: number | null; onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [lastKm, setLastKm] = useState("");
+  const [interval, setIntervalKm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+  const remaining = kmUntilService(lastServiceOdometerKm, serviceIntervalKm, latestOdometer);
+
+  async function save() {
+    setBusy(true); setMsg(undefined);
+    const res: Outcome = await setServiceReminder(vehicleId, Number(lastKm), Number(interval)).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (res.ok) { setEditing(false); return onChanged(); }
+    setMsg(res.message);
+  }
+
+  if (remaining === null && !editing) {
+    return (
+      <div className="rounded-lg bg-surface-card p-4 text-center shadow-card">
+        <p className="text-body-regular-14 text-text-secondary">لم تحدّد موعد الصيانة بعد.</p>
+        <Button variant="secondary" size="md" className="mt-2" onClick={() => setEditing(true)}>أضف موعد الصيانة</Button>
+      </div>
+    );
+  }
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 shadow-card">
+        <Input label="قراءة العداد عند آخر تغيير زيت" dir="ltr" inputMode="numeric" suffix="كم" value={lastKm} onChange={(e) => setLastKm(e.target.value)} />
+        <Input label="الفاصل بين الصيانات" dir="ltr" inputMode="numeric" suffix="كم" value={interval} onChange={(e) => setIntervalKm(e.target.value)} />
+        {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
+        <div className="flex gap-2">
+          <Button variant="action" size="md" disabled={busy || !lastKm.trim() || !interval.trim()} onClick={save}>{busy ? "…" : "حفظ"}</Button>
+          <Button variant="ghost" size="md" onClick={() => setEditing(false)}>إلغاء</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-card p-4 shadow-card">
+      <div>
+        <p className="text-body-strong-14">🔧 {remaining! > 0 ? `تغيير الزيت بعد ${formatNumber(remaining!, 0)} كم` : "حان وقت تغيير الزيت"}</p>
+        <p className="text-body-small-12 text-text-secondary">محسوب من قراءات العداد في فواتيرك</p>
+      </div>
+      <button type="button" onClick={() => { setLastKm(String(lastServiceOdometerKm)); setIntervalKm(String(serviceIntervalKm)); setEditing(true); }} className="text-body-small-12 text-brand-primary">تعديل</button>
+    </div>
   );
 }
 

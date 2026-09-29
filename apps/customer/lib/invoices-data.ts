@@ -2,10 +2,10 @@
 // loyalty_read RLS (customer_id = auth.uid()) except filing a complaint from an invoice, a plain insert under
 // complaints_create + complaint_messages_write (both customer-scoped). No RPC needed for any of this.
 // Station name/currency come from public_station_prices, not the stations table directly — a customer isn't
-// a station member, so `stations` itself is not RLS-readable to them (found by a read-only probe against the
-// live project); public_station_prices is the one owner-rights view meant for exactly this. The fuel product
-// name has no such customer-safe path yet (nozzles/tanks/products all require station membership too), so it
-// shows as "—" rather than guessed — see docs/briefs/04e-cowork-customer-product-name.md.
+// a station member, so `stations` itself is not RLS-readable to them; public_station_prices is the one
+// owner-rights view meant for exactly this. The fuel name comes straight from sales.product_name — frozen at
+// sale time, so a renamed/discontinued product still shows what the receipt actually said (docs/briefs/06a,
+// closing 04e's earlier gap).
 import { errorMessage } from "@fuelos/core";
 import type { InvoiceStatus } from "./invoice-rules";
 import { currencyLabel } from "./prices-rules";
@@ -39,7 +39,7 @@ export async function loadInvoices(customerId: string, monthStart: string, month
   const invoiceIds = (invoicesRes.data ?? []).map((i) => i.id as string);
   const [salesRes, stationInfo, loyaltyRes] = await Promise.all([
     saleIds.length === 0 ? { data: [], error: null } :
-      sb.from("sales").select("id, amount, liters, unit_price, nozzle_id, vehicle_id").in("id", saleIds).abortSignal(signal()),
+      sb.from("sales").select("id, amount, liters, unit_price, product_name, vehicle_id").in("id", saleIds).abortSignal(signal()),
     stationInfoByIds(stationIds),
     invoiceIds.length === 0 ? { data: [], error: null } :
       sb.from("loyalty_ledger").select("points").in("invoice_id", invoiceIds).abortSignal(signal()),
@@ -58,7 +58,7 @@ export async function loadInvoices(customerId: string, monthStart: string, month
       id: i.id, number: i.number, status: i.status as InvoiceStatus, issuedAt: i.issued_at,
       stationId: i.station_id, stationName: station?.name ?? "", currency: station?.currency ?? "ل.س",
       amount: sale?.amount ?? 0, liters: sale?.liters ?? 0, unitPrice: sale?.unit_price ?? 0,
-      product: "", // no customer-safe way to resolve nozzle_id → product name yet, see the header note
+      product: (sale?.product_name as string) ?? "",
       vehicleId: (sale?.vehicle_id as string) ?? null, vehicleLabel: vehicle ? (vehicle.label as string) || (vehicle.plate as string) : null,
     };
   });
@@ -94,11 +94,11 @@ export async function loadInvoiceDetail(customerId: string, invoiceId: string): 
   const inv = await sb.from("invoices").select("id, number, status, issued_at, station_id, sale_id").eq("id", invoiceId).abortSignal(signal()).single();
   if (inv.error) throw new Error(inv.error.message);
   const [sale, stationInfo, corrections, ledger, allLedger] = await Promise.all([
-    sb.from("sales").select("amount, liters, unit_price, payment_method, nozzle_id, vehicle_id, odometer_km").eq("id", inv.data.sale_id).abortSignal(signal()).single(),
+    sb.from("sales").select("amount, liters, unit_price, payment_method, product_name, vehicle_id, odometer_km").eq("id", inv.data.sale_id).abortSignal(signal()).single(),
     stationInfoByIds([inv.data.station_id as string]),
     sb.from("invoice_corrections").select("id, reason, amount_delta, created_at").eq("invoice_id", invoiceId).order("created_at").abortSignal(signal()),
     sb.from("loyalty_ledger").select("points").eq("invoice_id", invoiceId).abortSignal(signal()).maybeSingle(),
-    sb.from("loyalty_ledger").select("points").eq("customer_id", customerId).abortSignal(signal()),
+    sb.from("loyalty_ledger").select("points").eq("customer_id", customerId).eq("station_id", inv.data.station_id).abortSignal(signal()),
   ]);
   if (sale.error) throw new Error(sale.error.message);
   if (corrections.error) throw new Error(corrections.error.message);
@@ -110,10 +110,10 @@ export async function loadInvoiceDetail(customerId: string, invoiceId: string): 
     const v = await sb.from("vehicles").select("plate, label").eq("id", sale.data.vehicle_id).abortSignal(signal()).maybeSingle();
     if (v.data) vehicle = v.data;
   }
-  // no customer-safe way to resolve nozzle_id → product name yet, see the header note
-  const product = "";
+  const product = (sale.data.product_name as string) ?? "";
 
-  // «الرصيد» on C4 is the customer's current total, same number C6 shows — not a point-in-time snapshot.
+  // «الرصيد» on C4 is the customer's current total AT THIS STATION (points are per station, docs/briefs/06a) —
+  // the same number C6's card for this station shows, not a point-in-time snapshot.
   const runningBalance = (allLedger.data ?? []).reduce((s, l) => s + (l.points as number), 0);
   const thisEntryPoints = ledger.data?.points ?? null;
 

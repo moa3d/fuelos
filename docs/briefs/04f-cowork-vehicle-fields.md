@@ -1,5 +1,8 @@
 # Brief 04f — vehicle budget and service-reminder fields (request for Cowork)
 
+**Status (2026-09-29): done.** `vehicles.monthly_budget`, `last_service_odometer_km`, `service_interval_km`
+(docs/briefs/06a) — C5 now sets and reads all three, with "أضف ميزانية"/"أضف موعد الصيانة" until set.
+
 Written by Claude Code on 2026-09-27 while building the customer app's C5 (سيارتي ومصروفي). Needs the
 Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks C5**: monthly spend, the
 6-month trend, cost/km and average consumption are all computed from real `sales` rows (customer_id +

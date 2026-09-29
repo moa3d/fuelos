@@ -1,17 +1,19 @@
 "use client";
 // A3 — الاشتراكات والباقات (design/screens/A3.png). Real plans/subscriptions data (plans_admin/subs_admin RLS:
-// is_platform_staff() has full CRUD, no RPC needed). No payment-history ledger exists — only current state —
-// so "تسجيل دفعة يدوية" marks the subscription active with a fresh renewal date rather than recording a
-// payment row (docs/briefs/05b-cowork-subscription-payments.md).
+// is_platform_staff() has full CRUD, no RPC needed for those). «تسجيل دفعة يدوية» goes through
+// record_subscription_payment() — platform ADMIN only, support gets 42501 (docs/briefs/06a, done) — which
+// appends a real subscription_payments row and activates the subscription until the new renewal date. The MRR
+// trend reads mrr_snapshots and shows only the months that actually exist; no invented history.
 import { formatDay, formatMoney, formatNumber } from "@fuelos/core";
-import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
+import { AlertBanner, Button, Input, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import { subscriptionBadge } from "@/lib/dashboard-rules";
 import { centsStr } from "@/lib/money";
 import { featureChecklist } from "@/lib/subscriptions-rules";
 import {
-  cancelSubscription, changeSubscriptionPlan, loadSubscriptions, markSubscriptionPaid,
-  type Outcome, type PlanUsage, type SubscriptionRow, type SubscriptionsData,
+  cancelSubscription, changeSubscriptionPlan, isPlatformAdmin, loadMrrTrend, loadPaymentHistory, loadSubscriptions,
+  recordPayment, PAYMENT_METHOD_LABEL, type MrrMonth, type Outcome, type Payment, type PaymentMethod,
+  type PlanUsage, type SubscriptionRow, type SubscriptionsData,
 } from "@/lib/subscriptions-data";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SubscriptionsData };
@@ -21,10 +23,14 @@ export default function SubscriptionsPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [tick, setTick] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
+  const [admin, setAdmin] = useState(false);
+  const [trend, setTrend] = useState<MrrMonth[]>();
   const money = (c: bigint) => formatMoney(centsStr(c), "ل.س");
 
   useEffect(() => {
     loadSubscriptions().then((data) => setLoad({ status: "ready", data }), () => setLoad({ status: "error" }));
+    isPlatformAdmin().then(setAdmin);
+    loadMrrTrend().then(setTrend, () => setTrend([]));
   }, [tick]);
 
   function refresh() {
@@ -53,6 +59,8 @@ export default function SubscriptionsPage() {
             <Kpi label="الإيراد الشهري المتكرر" value={money(load.data.mrrCents)} />
           </div>
 
+          {trend && trend.length > 0 && <MrrTrendChart trend={trend} money={money} />}
+
           <div className="grid gap-4 lg:grid-cols-3">
             {load.data.plans.map((p) => <PlanCard key={p.id} plan={p} money={money} />)}
           </div>
@@ -77,7 +85,7 @@ export default function SubscriptionsPage() {
               </thead>
               <tbody className="divide-y divide-border-default">
                 {load.data.subscriptions.filter((s) => filter === "all" || needsAction(s)).map((s) => (
-                  <SubscriptionRowView key={s.id + s.stationId} row={s} plans={load.data.plans} onChanged={refresh} />
+                  <SubscriptionRowView key={s.id + s.stationId} row={s} plans={load.data.plans} admin={admin} onChanged={refresh} />
                 ))}
               </tbody>
             </table>
@@ -90,6 +98,32 @@ export default function SubscriptionsPage() {
 
 function needsAction(s: SubscriptionRow): boolean {
   return s.status === "past_due" || (s.status === "trial" && !!s.trialEndsAt && Date.parse(s.trialEndsAt) - Date.now() < 3 * 86_400_000);
+}
+
+function MrrTrendChart({ trend, money }: { trend: MrrMonth[]; money: (c: bigint) => string }) {
+  const max = trend.reduce((m, t) => (t.amountCents > m ? t.amountCents : m), 1n);
+  return (
+    <section className="rounded-lg bg-surface-card p-6 shadow-card">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-heading-h2-20">نمو الإيراد المتكرر</h2>
+        <span className="text-body-small-12 text-text-secondary">من لقطات شهرية فعلية — لا تاريخ مُفترض قبل أول لقطة</span>
+      </div>
+      <div className="flex items-end justify-between gap-2" style={{ height: 140 }}>
+        {trend.map((t, i) => (
+          <div key={t.month} className="flex flex-1 flex-col items-center gap-1">
+            <span className="text-body-small-12 text-text-secondary">{money(t.amountCents)}</span>
+            <div className={`w-full rounded-t-sm ${i === trend.length - 1 ? "bg-brand-primary" : "bg-surface-muted"}`}
+              style={{ height: Math.max(4, Number((t.amountCents * 90n) / max)) }} />
+            <span className="text-body-small-12 text-text-muted">{monthArabic(t.month)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function monthArabic(isoMonth: string): string {
+  return new Intl.DateTimeFormat("ar-EG-u-nu-latn", { month: "short" }).format(new Date(isoMonth));
 }
 
 function Kpi({ label, value, tone }: { label: string; value: string; tone?: "danger" }) {
@@ -128,10 +162,11 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
   );
 }
 
-function SubscriptionRowView({ row, plans, onChanged }: { row: SubscriptionRow; plans: PlanUsage[]; onChanged: () => void }) {
+function SubscriptionRowView({ row, plans, admin, onChanged }: { row: SubscriptionRow; plans: PlanUsage[]; admin: boolean; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
+  const [payOpen, setPayOpen] = useState(false);
   const badge = subscriptionBadge(row.status);
 
   async function run(fn: () => Promise<Outcome>) {
@@ -154,8 +189,8 @@ function SubscriptionRowView({ row, plans, onChanged }: { row: SubscriptionRow; 
             <div className="absolute end-0 z-10 mt-1 w-64 rounded-md border border-border-default bg-surface-card p-2 shadow-raised">
               {msg && <p className="mb-2 text-body-small-12 text-status-danger-700">{msg}</p>}
               <div className="flex flex-col gap-1">
-                <button type="button" disabled={busy} onClick={() => run(() => markSubscriptionPaid(row.id))} className="rounded-sm px-2 py-1.5 text-start text-body-small-12 hover:bg-surface-muted">
-                  تسجيل دفعة يدوية (تفعيل + تجديد شهر)
+                <button type="button" onClick={() => { setOpen(false); setPayOpen(true); }} className="rounded-sm px-2 py-1.5 text-start text-body-small-12 hover:bg-surface-muted">
+                  تسجيل دفعة / سجل الدفعات
                 </button>
                 {plans.filter((p) => p.id !== row.planId).map((p) => (
                   <button key={p.id} type="button" disabled={busy} onClick={() => run(() => changeSubscriptionPlan(row.id, p.id))} className="rounded-sm px-2 py-1.5 text-start text-body-small-12 hover:bg-surface-muted">
@@ -170,7 +205,77 @@ function SubscriptionRowView({ row, plans, onChanged }: { row: SubscriptionRow; 
           )}
         </div>
       </td>
+      {payOpen && <PaymentModal subscriptionId={row.id} stationName={row.stationName} admin={admin} onClose={() => setPayOpen(false)} onChanged={onChanged} />}
     </tr>
+  );
+}
+
+function PaymentModal({ subscriptionId, stationName, admin, onClose, onChanged }: {
+  subscriptionId: string; stationName: string; admin: boolean; onClose: () => void; onChanged: () => void;
+}) {
+  const [history, setHistory] = useState<Payment[]>();
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  useEffect(() => { loadPaymentHistory(subscriptionId).then(setHistory, () => setHistory([])); }, [subscriptionId]);
+
+  async function submit() {
+    setBusy(true); setMsg(undefined);
+    const res = await recordPayment(subscriptionId, amount.trim(), method, note.trim() || null)
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    setAmount(""); setNote("");
+    loadPaymentHistory(subscriptionId).then(setHistory);
+    onChanged();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="الدفعات">
+      <div className="w-full max-w-md rounded-lg bg-surface-card p-6 shadow-raised">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-heading-h2-20">دفعات {stationName}</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="flex size-8 items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted">✕</button>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <h3 className="text-heading-h3-16">السجل</h3>
+          {history === undefined ? (
+            <span className="block h-16 animate-pulse rounded-md bg-surface-muted" />
+          ) : history.length === 0 ? (
+            <p className="text-body-regular-14 text-text-secondary">لا دفعات مسجَّلة بعد.</p>
+          ) : (
+            <ul className="flex max-h-40 flex-col divide-y divide-border-default overflow-y-auto">
+              {history.map((p) => (
+                <li key={p.id} className="py-2 text-body-small-12">
+                  <p className="text-body-strong-14">{formatMoney(centsStr(p.amountCents), "ل.س")} — {PAYMENT_METHOD_LABEL[p.method]}</p>
+                  <p className="text-text-secondary">حتى {formatDay(p.renewsAt)} · {formatDay(p.createdAt)}{p.note ? ` · «${p.note}»` : ""}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 border-t border-border-default pt-4">
+          <h3 className="text-heading-h3-16">تسجيل دفعة جديدة</h3>
+          {!admin && <AlertBanner tone="info" title="تسجيل الدفعات للمدير فقط">حسابك «دعم» ولا يملك هذه الصلاحية.</AlertBanner>}
+          {msg && <AlertBanner tone="danger" title={msg} />}
+          <Input label="المبلغ" dir="ltr" disabled={!admin} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} suffix="ل.س" />
+          <div className="flex flex-col gap-1">
+            <label className="text-label-12 text-text-secondary">طريقة الدفع</label>
+            <select value={method} disabled={!admin} onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+              className="h-11 rounded-md border border-border-strong bg-surface-card px-3 text-body-large-16 disabled:opacity-50">
+              {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((m) => <option key={m} value={m}>{PAYMENT_METHOD_LABEL[m]}</option>)}
+            </select>
+          </div>
+          <TextArea label="ملاحظة (اختياري)" disabled={!admin} value={note} onChange={(e) => setNote(e.target.value)} />
+          <Button variant="action" disabled={!admin || busy || !amount.trim()} onClick={submit}>{busy ? "جارٍ التسجيل…" : "تسجيل الدفعة"}</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

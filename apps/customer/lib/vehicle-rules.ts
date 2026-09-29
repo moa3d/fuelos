@@ -54,3 +54,10 @@ export function averageOf(values: (number | null)[]): number | null {
   if (v.length === 0) return null;
   return Math.round((v.reduce((s, x) => s + x, 0) / v.length) * 10) / 10;
 }
+
+/** Km remaining until the next oil change: last service + interval − the latest known odometer reading.
+ * Null unless both service fields are set (docs/briefs/06a: 04f fields) — never guessed. */
+export function kmUntilService(lastServiceOdometerKm: number | null, serviceIntervalKm: number | null, latestOdometerKm: number | null): number | null {
+  if (lastServiceOdometerKm === null || serviceIntervalKm === null) return null;
+  return lastServiceOdometerKm + serviceIntervalKm - (latestOdometerKm ?? lastServiceOdometerKm);
+}

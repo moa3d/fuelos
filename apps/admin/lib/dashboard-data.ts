@@ -1,9 +1,9 @@
-// A1 «لوحة المنصة». Platform-staff-only reads (station_read/members_read/subs_admin/tickets_read: is_platform_staff()
-// grants full visibility). The map, per-station "لم تُزامن منذ X أيام" device-sync signal, and the 6-month revenue
-// history chart aren't built: stations have no lat/long, there's no device-heartbeat tracking, and there's no
-// historical MRR snapshot table — see docs/briefs/05a-cowork-admin-dashboard.md. «طلب وصول مؤقت» is real.
+// A1 «لوحة المنصة». Platform-staff-only reads (station_read/members_read/subs_admin/tickets_read/devices_platform_read:
+// is_platform_staff() grants full visibility). Device sync health and MRR (docs/briefs/06a, delivered) feed the
+// "تحتاج إجراء" list alongside subscriptions. Still missing: the map (no lat/long on stations shown here — see
+// A2, which now sets it for new stations) and «طلب وصول مؤقت» stays real, unrelated to any of this.
 import {
-  mrrCents, trialEndingSoon, type SubForMrr, type SubStatus, type TicketPriority, type TicketStatus,
+  deviceSyncStale, mrrCents, trialEndingSoon, type SubForMrr, type SubStatus, type TicketPriority, type TicketStatus,
 } from "./dashboard-rules";
 import { cents } from "./money";
 import { supabase } from "./supabase";
@@ -25,13 +25,14 @@ export type DashboardData = {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const sb = supabase();
-  const [stationsRes, membersRes, subsRes, ticketsRes] = await Promise.all([
+  const [stationsRes, membersRes, subsRes, ticketsRes, devicesRes] = await Promise.all([
     sb.from("stations").select("id, name, status, organization_id").abortSignal(signal()),
     sb.from("station_members").select("user_id").eq("status", "active").abortSignal(signal()),
     sb.from("subscriptions").select("id, organization_id, status, trial_ends_at, plans(monthly_price, per_station)").abortSignal(signal()),
     sb.from("support_tickets").select("id, number, subject, priority, status, station_id, created_at").neq("status", "resolved").order("created_at", { ascending: false }).abortSignal(signal()),
+    sb.from("devices").select("station_id, last_sync_at").abortSignal(signal()),
   ]);
-  const failed = [stationsRes, membersRes, subsRes, ticketsRes].find((r) => r.error);
+  const failed = [stationsRes, membersRes, subsRes, ticketsRes, devicesRes].find((r) => r.error);
   if (failed?.error) throw new Error(failed.error.message);
 
   const stations = stationsRes.data ?? [];
@@ -56,6 +57,16 @@ export async function loadDashboard(): Promise<DashboardData> {
     } else if (trialEndingSoon(s.trial_ends_at, now)) {
       for (const st of orgStations) attention.push({ stationId: st.id, stationName: st.name, reason: "الفترة التجريبية تنتهي قريباً" });
     }
+  }
+  const latestSyncByStation = new Map<string, string>();
+  for (const d of devicesRes.data ?? []) {
+    if (!d.last_sync_at) continue;
+    const cur = latestSyncByStation.get(d.station_id as string);
+    if (!cur || d.last_sync_at > cur) latestSyncByStation.set(d.station_id as string, d.last_sync_at as string);
+  }
+  for (const st of stations) {
+    const latest = latestSyncByStation.get(st.id as string) ?? null;
+    if (deviceSyncStale(latest, now)) attention.push({ stationId: st.id as string, stationName: st.name as string, reason: "لم تُزامن أجهزتها منذ 3 أيام" });
   }
 
   const tickets: Ticket[] = (ticketsRes.data ?? []).map((t) => ({

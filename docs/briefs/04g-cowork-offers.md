@@ -1,5 +1,10 @@
 # Brief 04g — offer promo codes and personalized eligibility (request for Cowork)
 
+**Status (2026-09-29):** items 1 and 3 done — `offers.code`, `loyalty_programs.point_value`, `reward_tiers`
+(docs/briefs/06a). C6 shows the code with a copy button, "≈" only when a point value is set, and the nearest
+tier still ahead, all per station (points are earned per station, not globally). Item 2 ("متاح لك" personalized
+eligibility from `offers.rule`) is still open — C6 still only shows «فعّال / منتهٍ» by date window.
+
 Written by Claude Code on 2026-09-27 while building the customer app's C6 (مكافآتي والعروض). Needs the
 Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks C6**: the loyalty balance and
 the list of active offers (title, station, validity window) are real and already work.

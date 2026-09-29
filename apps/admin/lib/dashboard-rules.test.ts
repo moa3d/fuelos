@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { daysUntil, mrrCents, subscriptionBadge, ticketBadge, trialEndingSoon } from "./dashboard-rules.ts";
+import { daysUntil, deviceSyncStale, mrrCents, subscriptionBadge, ticketBadge, trialEndingSoon } from "./dashboard-rules.ts";
 
-test("MRR counts only active/past_due, multiplies per-station plans by station count", () => {
+test("MRR counts only active subscriptions (matches mrr_snapshots), multiplies per-station plans by station count", () => {
   const subs = [
     { status: "active" as const, planMonthlyPriceCents: 15_000_000n, perStation: false, stationCount: 1 },
     { status: "trial" as const, planMonthlyPriceCents: 30_000_000n, perStation: false, stationCount: 1 },
-    { status: "past_due" as const, planMonthlyPriceCents: 25_000_000n, perStation: true, stationCount: 3 },
+    { status: "active" as const, planMonthlyPriceCents: 25_000_000n, perStation: true, stationCount: 3 },
+    { status: "past_due" as const, planMonthlyPriceCents: 50_000_000n, perStation: false, stationCount: 1 },
     { status: "cancelled" as const, planMonthlyPriceCents: 99_000_000n, perStation: false, stationCount: 1 },
   ];
   assert.equal(mrrCents(subs), 15_000_000n + 25_000_000n * 3n);
@@ -33,4 +34,11 @@ test("trial ending soon, within the window and not already expired", () => {
   assert.equal(trialEndingSoon("2026-09-30T00:00:00Z", now), false);
   assert.equal(trialEndingSoon("2026-09-20T00:00:00Z", now), false);
   assert.equal(trialEndingSoon(null, now), false);
+});
+
+test("device sync staleness: past the threshold only; never-synced (null) isn't flagged here", () => {
+  const now = Date.parse("2026-09-24T00:00:00Z");
+  assert.equal(deviceSyncStale("2026-09-20T00:00:00Z", now), true); // 4 days ago
+  assert.equal(deviceSyncStale("2026-09-22T00:00:00Z", now), false); // 2 days ago
+  assert.equal(deviceSyncStale(null, now), false);
 });

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { averageOf, costPerKm, consumptionPer100km, distancesSinceLast, lastMonthKeys, monthKey, spendByMonth, type Fill } from "./vehicle-rules.ts";
+import {
+  averageOf, costPerKm, consumptionPer100km, distancesSinceLast, kmUntilService, lastMonthKeys, monthKey,
+  spendByMonth, type Fill,
+} from "./vehicle-rules.ts";
 
 test("month key and the last N months, oldest first", () => {
   assert.equal(monthKey("2026-09-24T10:00:00Z"), "2026-09");
@@ -42,4 +45,11 @@ test("average of the computable legs only", () => {
   assert.equal(averageOf([10, null, 20]), 15);
   assert.equal(averageOf([null, null]), null);
   assert.equal(averageOf([]), null);
+});
+
+test("km until the next service, null unless both fields are set", () => {
+  assert.equal(kmUntilService(80_000, 10_000, 88_000), 2_000);
+  assert.equal(kmUntilService(80_000, 10_000, null), 10_000); // no fills yet: full interval remains
+  assert.equal(kmUntilService(null, 10_000, 88_000), null);
+  assert.equal(kmUntilService(80_000, null, 88_000), null);
 });

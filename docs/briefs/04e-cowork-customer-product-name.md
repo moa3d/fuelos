@@ -1,5 +1,7 @@
 # Brief 04e — a customer can't resolve which fuel a sale was for (request for Cowork)
 
+**Status (2026-09-29): done.** `sales.product_name` (docs/briefs/06a) — C3/C4 now read it directly.
+
 Written by Claude Code on 2026-09-27 while building the customer app's C3/C4 (فواتيري, تفاصيل الفاتورة).
 Needs the Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks C3/C4**: everything
 else (invoice list, totals, loyalty points, vehicle link, filing a complaint) works today — the fuel name just

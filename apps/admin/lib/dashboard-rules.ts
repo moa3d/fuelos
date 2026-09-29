@@ -8,11 +8,12 @@ export type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
 export type SubForMrr = { status: SubStatus; planMonthlyPriceCents: bigint; perStation: boolean; stationCount: number };
 
-/** Recurring revenue: active and past-due subscriptions only (still nominally billed); a per-station plan
- * (e.g. «شبكة») multiplies by how many stations that organization has. */
+/** Recurring revenue: ACTIVE subscriptions only — matches mrr_snapshots' own definition (docs/briefs/06a), so
+ * the live figure and the historical trend never disagree. A per-station plan (e.g. «شبكة») multiplies by how
+ * many stations that organization has. */
 export function mrrCents(subs: SubForMrr[]): bigint {
   return subs
-    .filter((s) => s.status === "active" || s.status === "past_due")
+    .filter((s) => s.status === "active")
     .reduce((sum, s) => sum + s.planMonthlyPriceCents * BigInt(s.perStation ? s.stationCount : 1), 0n);
 }
 
@@ -44,4 +45,11 @@ export function trialEndingSoon(trialEndsAt: string | null, nowMs: number, withi
   if (!trialEndsAt) return false;
   const d = daysUntil(trialEndsAt, nowMs);
   return d >= 0 && d <= withinDays;
+}
+
+/** «لم تُزامن منذ 3 أيام» — a station's most recent device sync is older than the threshold. Null (no device
+ * has ever synced) doesn't count here: a brand-new station isn't "stale", it just hasn't started yet. */
+export function deviceSyncStale(latestSyncAt: string | null, nowMs: number, thresholdDays = 3): boolean {
+  if (!latestSyncAt) return false;
+  return nowMs - Date.parse(latestSyncAt) > thresholdDays * 86_400_000;
 }

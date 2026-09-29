@@ -1,7 +1,9 @@
 // A3 «الاشتراكات والباقات». Platform-staff-only (plans_admin/subs_admin RLS: is_platform_staff() grants full
-// CRUD, no RPC needed). There's no separate payment-history ledger for subscriptions — only current state
-// (status, renews_at) is tracked, so "تسجيل دفعة يدوية" here means marking the subscription active with a
-// fresh renewal date, not recording a payment row (docs/briefs/05b-cowork-subscription-payments.md).
+// CRUD on plans/subscriptions, no RPC needed for those). «تسجيل دفعة يدوية» goes through
+// record_subscription_payment() (platform ADMIN only — support gets 42501, checked with is_platform_admin()):
+// it appends a subscription_payments row and sets the subscription active until the new renewal date
+// (docs/briefs/06a, done). The MRR trend reads mrr_snapshots — only the months that actually exist, no
+// invented history.
 import { mrrCents as computeMrr, type SubForMrr, type SubStatus } from "./dashboard-rules";
 import { cents } from "./money";
 import { supabase } from "./supabase";
@@ -88,14 +90,53 @@ export async function loadSubscriptions(): Promise<SubscriptionsData> {
   };
 }
 
+export async function isPlatformAdmin(): Promise<boolean> {
+  const { data, error } = await supabase().rpc("is_platform_admin").abortSignal(signal());
+  return !error && data === true;
+}
+
+// ---------- MRR trend (mrr_snapshots — one row per org per month, taken on the 1st by pg_cron) ----------
+export type MrrMonth = { month: string; amountCents: bigint };
+
+export async function loadMrrTrend(): Promise<MrrMonth[]> {
+  const { data, error } = await supabase().from("mrr_snapshots").select("month, amount").order("month").abortSignal(signal());
+  if (error) throw new Error(error.message);
+  const byMonth = new Map<string, bigint>();
+  for (const r of data ?? []) byMonth.set(r.month as string, (byMonth.get(r.month as string) ?? 0n) + cents(r.amount));
+  return [...byMonth.entries()].map(([month, amountCents]) => ({ month, amountCents }));
+}
+
 // ---------- writes (plans_admin/subs_admin RLS: platform_staff only) ----------
 export type Outcome = { ok: true } | { ok: false; message: string };
 
-/** No payment-history ledger exists — this just marks the subscription active with a fresh monthly renewal. */
-export async function markSubscriptionPaid(subscriptionId: string): Promise<Outcome> {
-  const renewsAt = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
-  const { error } = await supabase().from("subscriptions").update({ status: "active", renews_at: renewsAt }).eq("id", subscriptionId).abortSignal(signal());
-  return error ? { ok: false, message: "تعذّر التسجيل — حاول مرة أخرى" } : { ok: true };
+export type PaymentMethod = "cash" | "transfer" | "card" | "other";
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = { cash: "نقداً", transfer: "حوالة", card: "بطاقة", other: "أخرى" };
+
+export type Payment = { id: string; amountCents: bigint; method: PaymentMethod; renewsAt: string; note: string | null; recordedBy: string; createdAt: string };
+
+export async function loadPaymentHistory(subscriptionId: string): Promise<Payment[]> {
+  const { data, error } = await supabase().from("subscription_payments")
+    .select("id, amount, method, renews_at, note, recorded_by, created_at").eq("subscription_id", subscriptionId)
+    .order("created_at", { ascending: false }).abortSignal(signal());
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((p) => ({
+    id: p.id, amountCents: cents(p.amount), method: p.method as PaymentMethod, renewsAt: p.renews_at,
+    note: p.note, recordedBy: p.recorded_by, createdAt: p.created_at,
+  }));
+}
+
+const PAYMENT_LOCAL: Record<string, string> = {
+  FUELOS_PERMISSION_DENIED: "تسجيل الدفعات متاح لمدير المنصة فقط",
+  "42501": "تسجيل الدفعات متاح لمدير المنصة فقط",
+  FUELOS_NOT_FOUND: "لم نجد هذا الاشتراك",
+};
+export async function recordPayment(subscriptionId: string, amount: string, method: PaymentMethod, note: string | null): Promise<Outcome> {
+  const { error } = await supabase().rpc("record_subscription_payment", {
+    p_subscription: subscriptionId, p_amount: amount, p_method: method, p_note: note,
+  }).abortSignal(signal());
+  if (!error) return { ok: true };
+  const code = error.message?.startsWith("FUELOS_") ? error.message.trim() : error.code === "42501" ? "42501" : undefined;
+  return { ok: false, message: (code && PAYMENT_LOCAL[code]) || "تعذّر تسجيل الدفعة — تحقّق من المبلغ وطريقة الدفع" };
 }
 
 export async function changeSubscriptionPlan(subscriptionId: string, planId: string): Promise<Outcome> {

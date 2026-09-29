@@ -1,9 +1,10 @@
 "use client";
 // C6/C7 — المكافآت والشكاوى (design/screens/C6.png, C7.png): one screen, a segmented control switches
 // between «مكافآتي» (loyalty balance + active offers) and «شكاواي» (the customer's complaint threads).
-// No promo codes, personalized offer eligibility, points-to-currency conversion, or a satisfaction rating —
-// none of those exist in the schema yet (docs/briefs/04g, 04h).
-import { formatDay, formatNumber, formatTime } from "@fuelos/core";
+// Points, their value and reward tiers are all per station (docs/briefs/06a) — one balance card per station
+// with any points; offer codes show with a copy button when the owner set one. Personalized offer eligibility
+// (offers.rule) and a complaint satisfaction rating still aren't built (docs/briefs/04g, 04h).
+import { formatDay, formatMoney, formatNumber, formatTime } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge, TextArea } from "@fuelos/ui";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -54,10 +55,25 @@ function RewardsTab() {
 
   return (
     <>
-      <div className="rounded-lg bg-brand-dark p-4 text-text-on-dark">
-        <p className="text-body-small-12 text-text-on-dark-muted">🎁 رصيد نقاطك</p>
-        <p className="mt-1 text-number-l-24">{formatNumber(data.pointsBalance, 0)} نقطة</p>
-      </div>
+      {data.balances.length === 0 ? (
+        <div className="rounded-lg bg-brand-dark p-4 text-text-on-dark">
+          <p className="text-body-small-12 text-text-on-dark-muted">🎁 رصيد نقاطك</p>
+          <p className="mt-1 text-body-regular-14">لا نقاط بعد — اربط أول فاتورة مؤكدة لتبدأ.</p>
+        </div>
+      ) : data.balances.map((b) => (
+        <div key={b.stationId} className="rounded-lg bg-brand-dark p-4 text-text-on-dark">
+          <p className="text-body-small-12 text-text-on-dark-muted">🎁 رصيد نقاطك · {b.stationName}</p>
+          <p className="mt-1 text-number-l-24">{formatNumber(b.pointsBalance, 0)} نقطة</p>
+          {b.pointValue !== null && (
+            <p className="mt-1 text-body-small-12 text-text-on-dark-muted">
+              ≈ {formatMoney((b.pointsBalance * b.pointValue).toFixed(2), b.currency)}
+            </p>
+          )}
+          {b.nextTier && (
+            <p className="mt-2 text-body-small-12 text-text-on-dark-muted">باقي {formatNumber(b.nextTier.pointsNeeded, 0)} نقطة لـ«{b.nextTier.title}»</p>
+          )}
+        </div>
+      ))}
 
       <h2 className="text-heading-h3-16">عروض المحطات</h2>
       {data.offers.length === 0 ? (
@@ -74,12 +90,24 @@ function RewardsTab() {
                   <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
                 </div>
                 <p className="mt-1 text-body-small-12 text-text-secondary">{o.stationName} · ينتهي {formatDay(o.endsAt)}</p>
+                {o.code && <CodeChip code={o.code} />}
               </li>
             );
           })}
         </ul>
       )}
     </>
+  );
+}
+
+function CodeChip({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button type="button" onClick={() => { navigator.clipboard?.writeText(code); setCopied(true); }}
+      className="mt-2 flex items-center gap-2 rounded-md bg-surface-muted px-3 py-1.5 text-body-small-12" dir="ltr">
+      <span className="font-mono text-body-strong-14">{code}</span>
+      <span className="text-brand-primary">{copied ? "تم النسخ ✓" : "نسخ"}</span>
+    </button>
   );
 }
 

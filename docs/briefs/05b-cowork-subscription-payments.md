@@ -5,6 +5,11 @@ Supabase connection, so it goes through Claude in Cowork. **Nothing here blocks 
 renews_at) and `plans` are fully admin-writable already (`subs_admin`/`plans_admin` RLS), so changing a plan,
 cancelling, or marking a subscription active/renewed all work today.
 
+**Status (2026-09-29): done** (docs/briefs/06a) — `subscription_payments` (append-only, trigger-enforced) plus
+`record_subscription_payment()`, gated to `is_platform_admin()` (stricter than `is_platform_staff()`: support
+staff can view but not record a payment). A3's «تسجيل دفعة يدوية» now inserts a real row and shows the
+station's payment history.
+
 ## What's missing
 `subscriptions` only tracks current state — `status`, `trial_ends_at`, `renews_at` — with no history of actual
 payments (amount, date, method, who recorded it). `design/screens/A3.png`'s "تسجيل دفعة يدوية" implies a real

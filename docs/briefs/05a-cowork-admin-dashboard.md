@@ -6,6 +6,12 @@ counts, distinct active users, MRR (from `subscriptions` × `plans.monthly_price
 by that organization's station count), open/urgent support tickets, past-due and trial-ending-soon stations,
 and the self-granted ≤24h «طلب وصول مؤقت» (a real `access_grants` insert, RLS-enforced) all work today.
 
+**Status (2026-09-29): done** (docs/briefs/06a) — all three items delivered: `stations.lat`/`lng` (also on
+`public_station_prices`, now used by the customer app's C1 map link), `devices.last_sync_at`/`pending_ops`
+readable via `devices_platform_read`, and the monthly `mrr_snapshots` table (`snapshot_mrr()` on a pg_cron
+schedule). A1 now flags stations with no device sync in 3+ days; A3 charts the 6-month MRR trend from
+`mrr_snapshots`. The map-with-pins UI itself isn't built yet (only the data exists) — a later slice.
+
 ## What's missing
 `design/screens/A1.png` shows three things with no backing data:
 1. **خريطة المحطات** (a map with per-region pins) — `stations` has no latitude/longitude, only `address`/`city`

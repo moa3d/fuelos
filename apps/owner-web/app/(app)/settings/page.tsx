@@ -4,23 +4,28 @@
 // والمضخات، الإشعارات) are placeholders. The permission list is read-only: roles are fixed in RLS/RPCs, not a
 // configurable matrix, so this documents them rather than pretending they're editable toggles. Inviting a user
 // goes through the invite-station-member Edge Function (Cowork); the app never holds the service role.
+import { formatDay } from "@fuelos/core";
 import { AlertBanner, Button, cx, Input, StatusBadge } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import {
-  changeRole, inviteMember, loadSettings, setAttendantPin, setMemberStatus, updateTolerances,
-  type MemberRow, type Outcome, type SettingsData, type Tolerances,
+  changeRole, inviteMember, joinLink, loadSettings, resendInviteLink, setAttendantPin, setMemberStatus,
+  updateTolerances, whatsappShareUrl, type Login, type MemberRow, type Outcome, type SettingsData, type Tolerances,
 } from "@/lib/settings-data";
 import {
   canSetPin, CAPABILITIES, isSelfRow, matchesSearch, ROLE_LABEL, statusBadge, type MemberRole,
 } from "@/lib/settings-rules";
+import {
+  addRewardTier, loadLocation, loadRewardsSettings, setOfferCode, setPointValue, setTierActive, updateLocation,
+  type Location, type RewardsSettings,
+} from "@/lib/rewards-settings-data";
 import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
-type Tab = "station" | "tanks" | "users" | "tolerances" | "notifications";
+type Tab = "station" | "tanks" | "users" | "tolerances" | "rewards" | "notifications";
 const TABS: [Tab, string][] = [
   ["station", "المحطة"], ["tanks", "الخزانات والمضخات"], ["users", "المستخدمون والصلاحيات"],
-  ["tolerances", "حدود التسامح"], ["notifications", "الإشعارات"],
+  ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"], ["notifications", "الإشعارات"],
 ];
 const ROLES: MemberRole[] = ["owner", "accountant", "shift_manager", "attendant"];
 
@@ -69,8 +74,9 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {tab === "station" && <ComingSoon text="ملف المحطة (الاسم، العنوان، المنطقة الزمنية) — قريباً." />}
+      {tab === "station" && <LocationTab stationId={current.stationId} canManage={canManage} />}
       {tab === "tanks" && <ComingSoon text="إعداد الخزانات والمضخات (إضافة خزان أو مضخة جديدة) — قريباً." />}
+      {tab === "rewards" && <RewardsTab stationId={current.stationId} canManage={canManage} currency={current.currencyLabel} />}
       {tab === "notifications" && <ComingSoon text="تفضيلات الإشعارات — قريباً." />}
 
       {tab === "users" && (
@@ -81,7 +87,7 @@ export default function SettingsPage() {
               تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.
             </AlertBanner>
           )}
-          {load.status === "ready" && <UsersTab data={load.data} canManage={canManage} stationId={current.stationId} userId={userId} now={Date.parse(load.data.fetchedAt)} onChanged={refresh} />}
+          {load.status === "ready" && <UsersTab data={load.data} canManage={canManage} stationId={current.stationId} stationName={current.stationName} userId={userId} now={Date.parse(load.data.fetchedAt)} onChanged={refresh} />}
         </>
       )}
 
@@ -95,19 +101,19 @@ export default function SettingsPage() {
         </>
       )}
 
-      {inviting && <InviteModal stationId={current.stationId} onClose={() => setInviting(false)} onDone={() => { setInviting(false); refresh(); }} />}
+      {inviting && <InviteModal stationId={current.stationId} stationName={current.stationName} onClose={() => setInviting(false)} onDone={() => { setInviting(false); refresh(); }} />}
     </div>
   );
 }
 
 // ---------- invite a user ----------
-function InviteModal({ stationId, onClose, onDone }: { stationId: string; onClose: () => void; onDone: () => void }) {
+function InviteModal({ stationId, stationName, onClose, onDone }: { stationId: string; stationName: string; onClose: () => void; onDone: () => void }) {
   const [role, setRole] = useState<MemberRole>("attendant");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [done, setDone] = useState<{ status: "invited" | "active"; emailSent: boolean }>();
+  const [done, setDone] = useState<{ status: "invited" | "active"; login: Login | null }>();
   const emailRequired = role !== "attendant";
 
   async function send() {
@@ -115,7 +121,7 @@ function InviteModal({ stationId, onClose, onDone }: { stationId: string; onClos
     const res = await inviteMember({ stationId, role, displayName: name.trim(), email: email.trim() || null })
       .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
     if (!res.ok) { setError(res.message); setBusy(false); return; }
-    setDone({ status: res.status, emailSent: res.emailSent });
+    setDone({ status: res.status, login: res.login });
     setBusy(false);
   }
 
@@ -123,11 +129,12 @@ function InviteModal({ stationId, onClose, onDone }: { stationId: string; onClos
     <Modal title="دعوة مستخدم" onClose={onClose}>
       {done ? (
         <div className="flex flex-col gap-3">
-          <AlertBanner tone="success" title={done.status === "active" ? "تمت إضافة الحساب" : "أُرسلت الدعوة"}>
-            {done.status === "active"
-              ? "الحساب نشط الآن. اضبط له رمز دخول من قائمة «⋯» في جدول المستخدمين."
-              : done.emailSent ? "سيصل بريد للانضمام. يظهر كـ«دعوة معلّقة» حتى يسجّل الدخول." : "أُضيف حساب موجود مسبقاً إلى المحطة مباشرة."}
+          <AlertBanner tone="success" title={done.status === "active" ? "تمت إضافة الحساب" : "جاهز للمشاركة"}>
+            {done.status === "active" ? "الحساب نشط الآن. اضبط له رمز دخول من قائمة «⋯» في جدول المستخدمين."
+              : done.login ? "شارك هذا الرابط مع الشخص ليدخل ويختار كلمة مرور. صالح لنحو ساعة."
+              : "أُضيف حساب موجود مسبقاً إلى المحطة — يدخل بحسابه المعتاد."}
           </AlertBanner>
+          {done.login && <JoinLinkCard login={done.login} stationName={stationName} />}
           <Button variant="secondary" onClick={onDone}>تم</Button>
         </div>
       ) : (
@@ -143,13 +150,29 @@ function InviteModal({ stationId, onClose, onDone }: { stationId: string; onClos
           <Input label="الاسم" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
           <Input label={emailRequired ? "البريد الإلكتروني" : "البريد الإلكتروني (اختياري)"} dir="ltr" type="email" autoComplete="off"
             value={email} onChange={(e) => setEmail(e.target.value)}
-            helper={emailRequired ? "لازم لإرسال دعوة تسجيل الدخول" : "بلا بريد: يمكنك تسجيل دخوله برمز عند الجهاز مباشرة"} />
+            helper={emailRequired ? "لإنشاء رابط انضمام له" : "بلا بريد: يمكنك تسجيل دخوله برمز عند الجهاز مباشرة"} />
           <Button variant="action" size="lg" block disabled={busy || !name.trim() || (emailRequired && !email.trim())} onClick={send}>
-            {busy ? "جارٍ الإرسال…" : "إرسال الدعوة"}
+            {busy ? "جارٍ الإنشاء…" : "دعوة"}
           </Button>
         </div>
       )}
     </Modal>
+  );
+}
+
+function JoinLinkCard({ login, stationName }: { login: Login; stationName: string }) {
+  const [copied, setCopied] = useState(false);
+  const link = joinLink(login);
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-surface-muted p-3">
+      <p dir="ltr" className="break-all text-body-small-12 text-text-secondary">{link}</p>
+      <div className="flex gap-2">
+        <Button variant="secondary" size="md" onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); }}>{copied ? "تم النسخ ✓" : "نسخ الرابط"}</Button>
+        <a href={whatsappShareUrl(link, stationName)} target="_blank" rel="noreferrer">
+          <Button variant="secondary" size="md">إرسال عبر واتساب</Button>
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -169,8 +192,8 @@ function ComingSoon({ text }: { text: string }) {
 }
 
 // ---------- users & permissions ----------
-function UsersTab({ data, canManage, stationId, userId, now, onChanged }: {
-  data: SettingsData; canManage: boolean; stationId: string; userId: string; now: number; onChanged: () => void;
+function UsersTab({ data, canManage, stationId, stationName, userId, now, onChanged }: {
+  data: SettingsData; canManage: boolean; stationId: string; stationName: string; userId: string; now: number; onChanged: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [refRole, setRefRole] = useState<MemberRole>("attendant");
@@ -218,7 +241,7 @@ function UsersTab({ data, canManage, stationId, userId, now, onChanged }: {
             </tr>
           </thead>
           <tbody className="divide-y divide-border-default">
-            {shown.map((m) => <MemberRowView key={m.userId} m={m} canManage={canManage} self={isSelfRow(m.userId, userId)} stationId={stationId} now={now} onChanged={onChanged} />)}
+            {shown.map((m) => <MemberRowView key={m.userId} m={m} canManage={canManage} self={isSelfRow(m.userId, userId)} stationId={stationId} stationName={stationName} now={now} onChanged={onChanged} />)}
           </tbody>
         </table>
         {shown.length === 0 && <p className="p-4 text-center text-body-regular-14 text-text-secondary">لا نتائج.</p>}
@@ -227,13 +250,16 @@ function UsersTab({ data, canManage, stationId, userId, now, onChanged }: {
   );
 }
 
-function MemberRowView({ m, canManage, self, stationId, now, onChanged }: {
-  m: MemberRow; canManage: boolean; self: boolean; stationId: string; now: number; onChanged: () => void;
+function MemberRowView({ m, canManage, self, stationId, stationName, now, onChanged }: {
+  m: MemberRow; canManage: boolean; self: boolean; stationId: string; stationName: string; now: number; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
   const [pin, setPin] = useState("");
+  const [freshLink, setFreshLink] = useState<Login>();
+  const [resendEmail, setResendEmail] = useState("");
+  const [resending, setResending] = useState(false);
   const badge = statusBadge(m.status);
 
   async function run(fn: () => Promise<Outcome>) {
@@ -241,6 +267,16 @@ function MemberRowView({ m, canManage, self, stationId, now, onChanged }: {
     const res = await fn().catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
     if (res.ok) { setOpen(false); onChanged(); return; }
     setMsg(res.message); setBusy(false);
+  }
+
+  async function getFreshLink() {
+    if (!resendEmail.trim()) return;
+    setBusy(true); setMsg(undefined);
+    const res = await resendInviteLink({ stationId, role: m.role, displayName: m.name, email: resendEmail.trim() })
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    if (res.login) setFreshLink(res.login); else setMsg("هذا الحساب دخل من قبل — استخدم «نسيت كلمة المرور»");
   }
 
   return (
@@ -277,6 +313,22 @@ function MemberRowView({ m, canManage, self, stationId, now, onChanged }: {
                       </div>
                     </div>
                   )}
+                  {m.status === "invited" && !resending && (
+                    <button type="button" onClick={() => setResending(true)} className="rounded-sm px-2 py-1.5 text-start text-body-small-12 hover:bg-surface-muted">
+                      رابط جديد
+                    </button>
+                  )}
+                  {resending && !freshLink && (
+                    <div className="mt-1 border-t border-border-default pt-2">
+                      <p className="px-2 text-body-small-12 text-text-secondary">أدخل البريد الذي دُعي به لإصدار رابط جديد</p>
+                      <div className="mt-1 flex gap-1 px-2">
+                        <input value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} dir="ltr" placeholder="email@example.com"
+                          className="h-8 flex-1 rounded-md border border-border-default bg-surface-card px-2 text-body-regular-14" />
+                        <Button variant="secondary" size="md" disabled={busy || !resendEmail.trim()} onClick={getFreshLink}>إنشاء</Button>
+                      </div>
+                    </div>
+                  )}
+                  {freshLink && <div className="mt-1 border-t border-border-default px-2 pt-2"><JoinLinkCard login={freshLink} stationName={stationName} /></div>}
                 </div>
               </div>
             )}
@@ -323,6 +375,155 @@ function TolerancesTab({ tolerances, canManage, stationId, onChanged }: {
         </div>
       )}
     </section>
+  );
+}
+
+// ---------- المحطة: الموقع ----------
+function LocationTab({ stationId, canManage }: { stationId: string; canManage: boolean }) {
+  const [loc, setLoc] = useState<Location>();
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  useEffect(() => {
+    loadLocation(stationId).then((l) => { setLoc(l); setLat(l.lat?.toString() ?? ""); setLng(l.lng?.toString() ?? ""); });
+  }, [stationId]);
+
+  if (!loc) return <span className="block h-40 animate-pulse rounded-lg bg-surface-muted" />;
+
+  async function save() {
+    setBusy(true); setMsg(undefined);
+    const bothEmpty = !lat.trim() && !lng.trim();
+    const latNum = bothEmpty ? null : Number(lat);
+    const lngNum = bothEmpty ? null : Number(lng);
+    if (!bothEmpty && (Number.isNaN(latNum) || Number.isNaN(lngNum))) { setMsg("أدخل إحداثيتين صحيحتين، أو اترك الحقلين فارغين"); setBusy(false); return; }
+    const res = await updateLocation(stationId, latNum, lngNum).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (res.ok) { setLoc({ lat: latNum, lng: lngNum }); return; }
+    setMsg(res.message);
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+      <h2 className="text-heading-h2-20">موقع المحطة</h2>
+      <p className="text-body-small-12 text-text-secondary">يظهر للزبائن على خريطة الأسعار العامة. اتركهما فارغين لإخفاء الموقع.</p>
+      {!canManage && <AlertBanner tone="info" title="التعديل متاح لصاحب المحطة فقط" />}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Input label="خط العرض (Latitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} placeholder="33.5138" />
+        <Input label="خط الطول (Longitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} placeholder="36.2765" />
+      </div>
+      {msg && <AlertBanner tone="danger" title={msg} />}
+      {canManage && <Button variant="action" disabled={busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "حفظ الموقع"}</Button>}
+    </section>
+  );
+}
+
+// ---------- المكافآت ----------
+function RewardsTab({ stationId, canManage, currency }: { stationId: string; canManage: boolean; currency: string }) {
+  const [data, setData] = useState<RewardsSettings>();
+  const [tick, setTick] = useState(0);
+  const [pointValue, setPointValueInput] = useState("");
+  const [tierPoints, setTierPoints] = useState("");
+  const [tierTitle, setTierTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  useEffect(() => {
+    loadRewardsSettings(stationId).then((d) => { setData(d); setPointValueInput(d.pointValue !== null ? String(d.pointValue) : ""); });
+  }, [stationId, tick]);
+
+  function refresh() { setTick((t) => t + 1); }
+  async function run(fn: () => Promise<Outcome>) {
+    setBusy(true); setMsg(undefined);
+    const res = await fn().catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (res.ok) return refresh();
+    setMsg(res.message);
+  }
+
+  if (!data) return <span className="block h-64 animate-pulse rounded-lg bg-surface-muted" />;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+        <h2 className="text-heading-h2-20">قيمة النقطة</h2>
+        <p className="text-body-small-12 text-text-secondary">ما تساويه نقطة واحدة نقداً في هذه المحطة — تظهر للزبون كـ«≈» فقط بعد تحديدها.</p>
+        {!canManage && <AlertBanner tone="info" title="التعديل متاح لصاحب المحطة فقط" />}
+        <div className="flex items-end gap-2">
+          <Input label="قيمة النقطة" suffix={currency} dir="ltr" disabled={!canManage} inputMode="decimal" value={pointValue} onChange={(e) => setPointValueInput(e.target.value)} />
+          {canManage && (
+            <Button variant="action" disabled={busy || !pointValue.trim() || Number(pointValue) <= 0} onClick={() => run(() => setPointValue(stationId, Number(pointValue)))}>
+              حفظ
+            </Button>
+          )}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+        <h2 className="text-heading-h2-20">درجات المكافآت</h2>
+        {msg && <AlertBanner tone="danger" title={msg} />}
+        <ul className="flex flex-col divide-y divide-border-default">
+          {data.tiers.map((t) => (
+            <li key={t.id} className="flex items-center justify-between gap-2 py-2.5 text-body-regular-14">
+              <span>{t.title} — {t.pointsThreshold} نقطة</span>
+              {canManage && (
+                <Button variant="ghost" size="md" disabled={busy} onClick={() => run(() => setTierActive(t.id, !t.isActive))}>
+                  {t.isActive ? "إخفاء" : "إظهار"}
+                </Button>
+              )}
+              {!canManage && <StatusBadge tone={t.isActive ? "success" : "neutral"}>{t.isActive ? "ظاهرة" : "مخفية"}</StatusBadge>}
+            </li>
+          ))}
+          {data.tiers.length === 0 && <p className="py-2 text-body-regular-14 text-text-secondary">لا توجد درجات بعد.</p>}
+        </ul>
+        {canManage && (
+          <div className="flex flex-wrap items-end gap-2">
+            <Input label="عدد النقاط" dir="ltr" inputMode="numeric" value={tierPoints} onChange={(e) => setTierPoints(e.target.value)} className="w-32" />
+            <Input label="اسم المكافأة" value={tierTitle} onChange={(e) => setTierTitle(e.target.value)} className="flex-1" />
+            <Button variant="secondary" disabled={busy || !tierPoints.trim() || !tierTitle.trim()}
+              onClick={() => run(() => addRewardTier(stationId, Number(tierPoints), tierTitle.trim())).then(() => { setTierPoints(""); setTierTitle(""); })}>
+              إضافة
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+        <h2 className="text-heading-h2-20">أكواد العروض</h2>
+        <p className="text-body-small-12 text-text-secondary">أحرف إنجليزية كبيرة وأرقام وشرطة، من 3 إلى 20 رمزاً.</p>
+        <ul className="flex flex-col gap-2">
+          {data.offers.map((o) => <OfferCodeRow key={o.id} offer={o} canManage={canManage} onChanged={refresh} />)}
+          {data.offers.length === 0 && <p className="text-body-regular-14 text-text-secondary">لا توجد عروض بعد.</p>}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function OfferCodeRow({ offer, canManage, onChanged }: { offer: RewardsSettings["offers"][number]; canManage: boolean; onChanged: () => void }) {
+  const [code, setCode] = useState(offer.code ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  async function save() {
+    setBusy(true); setMsg(undefined);
+    const res = await setOfferCode(offer.id, code.trim() || null).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (res.ok) return onChanged();
+    setMsg(res.message);
+  }
+
+  return (
+    <li className="flex flex-wrap items-end gap-2 rounded-md bg-surface-muted p-3">
+      <div className="flex-1">
+        <p className="text-body-strong-14">{offer.title}</p>
+        <p className="text-body-small-12 text-text-secondary">ينتهي {formatDay(offer.endsAt)}</p>
+        {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
+      </div>
+      <Input label="الكود" dir="ltr" disabled={!canManage} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="w-40" />
+      {canManage && <Button variant="secondary" size="md" disabled={busy || code === (offer.code ?? "")} onClick={save}>{busy ? "…" : "حفظ"}</Button>}
+    </li>
   );
 }
 

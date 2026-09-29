@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { offerBadge, offerStatus } from "./rewards-rules.ts";
+import { nextTier, offerBadge, offerStatus } from "./rewards-rules.ts";
 
 test("offer status by its own start/end window", () => {
   const now = Date.parse("2026-09-24T00:00:00Z");
@@ -12,4 +12,11 @@ test("offer status by its own start/end window", () => {
 test("offer badge tones", () => {
   assert.deepEqual(offerBadge("active"), { tone: "success", label: "فعّال" });
   assert.deepEqual(offerBadge("expired"), { tone: "neutral", label: "منتهٍ" });
+});
+
+test("the nearest tier still ahead, as in the design (1,240 of 1,500 → 260 left)", () => {
+  const tiers = [{ title: "قهوة مجانية", pointsThreshold: 500 }, { title: "غسيل سيارة مجاني", pointsThreshold: 1500 }];
+  assert.deepEqual(nextTier(tiers, 1240), { title: "غسيل سيارة مجاني", pointsNeeded: 260 });
+  assert.equal(nextTier(tiers, 2000), null);
+  assert.equal(nextTier([], 100), null);
 });

@@ -86,14 +86,16 @@ export async function updateTolerances(stationId: string, t: Tolerances): Promis
 }
 
 // ---------- invite (invite-station-member Edge Function; service role stays server-side) ----------
+// Nothing is emailed (no SMTP provider yet, docs/briefs/04d) — the function returns a one-time join link
+// instead, which O11 shows to copy or send over WhatsApp (docs/briefs/06a).
 export type InviteInput = { stationId: string; role: MemberRole; displayName: string; email: string | null };
-export type InviteOutcome = { ok: true; status: "invited" | "active"; emailSent: boolean } | { ok: false; message: string };
+export type Login = { tokenHash: string; type: "invite" };
+export type InviteOutcome = { ok: true; status: "invited" | "active"; login: Login | null } | { ok: false; message: string };
 
 const INVITE_LOCAL: Record<string, string> = {
   FUELOS_PERMISSION_DENIED: "دعوة مستخدمين متاحة لصاحب المحطة فقط",
   FUELOS_BAD_REQUEST: "تحقّق من البيانات المدخلة (الاسم والبريد والدور)",
   FUELOS_ALREADY_MEMBER: "هذا الشخص عضو في المحطة بالفعل",
-  FUELOS_EMAIL_UNAVAILABLE: "تعذّر إرسال الدعوة بالبريد — خدمة البريد غير مفعّلة بعد. يمكنك إضافة العامل بدون بريد.",
   FUELOS_INTERNAL: "تعذّرت الدعوة الآن — حاول بعد قليل",
 };
 
@@ -109,5 +111,20 @@ export async function inviteMember(input: InviteInput): Promise<InviteOutcome> {
     } catch { /* non-JSON error body */ }
     return { ok: false, message: INVITE_LOCAL[code] ?? errorMessage(undefined) };
   }
-  return { ok: true, status: data.status, emailSent: data.email_sent };
+  return { ok: true, status: data.status, login: data.login ? { tokenHash: data.login.token_hash, type: "invite" } : null };
+}
+
+/** «رابط جديد» for a row already «دعوة معلّقة» — same request, the function returns a fresh link. */
+export async function resendInviteLink(input: InviteInput): Promise<InviteOutcome> {
+  return inviteMember(input);
+}
+
+export function joinLink(login: Login): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/welcome?token_hash=${encodeURIComponent(login.tokenHash)}&type=${login.type}`;
+}
+
+export function whatsappShareUrl(link: string, stationName: string): string {
+  const text = `مرحباً، هذه دعوتك للانضمام إلى ${stationName} على FuelOS. افتح الرابط واختر كلمة مرور:\n${link}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
