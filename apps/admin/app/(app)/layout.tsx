@@ -14,7 +14,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/stations/new", label: "انضمام محطة", ready: false },
   { href: "/subscriptions", label: "الاشتراكات والباقات", ready: true },
   { href: "/support", label: "تذاكر الدعم", ready: false },
-  { href: "/audit", label: "الصلاحيات والسجلات", ready: false },
+  { href: "/audit", label: "الصلاحيات والسجلات", ready: true },
 ];
 
 type State =
