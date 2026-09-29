@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@import "@fuelos/ui/theme.css";
+
+/* workspace packages live outside this app; scan them for class names */
+@source "../../../packages/ui/src";
+
+html,
+body {
+  background: var(--color-surface-page);
+  color: var(--color-text-primary);
+}
+
+body {
+  font-family: var(--font-sans);
+}

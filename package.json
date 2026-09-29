@@ -9,6 +9,7 @@
     "dev": "npm run dev -w apps/worker",
     "dev:owner": "npm run dev -w apps/owner-web",
     "dev:customer": "npm run dev -w apps/customer",
+    "dev:admin": "npm run dev -w apps/admin",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "tokens": "npm run tokens -w packages/ui",
