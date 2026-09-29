@@ -17,3 +17,16 @@ export async function loadPrices(): Promise<PricesData> {
   if (error) throw new Error(error.message);
   return { stations: groupByStation((data ?? []) as PriceRow[]), fetchedAt: new Date().toISOString() };
 }
+
+// ---------- C2: one station's own page (guest-accessible, same view scoped to one station_id) ----------
+export async function loadStationDetail(stationId: string): Promise<Station | null> {
+  const { data, error } = await supabase()
+    .from("public_station_prices")
+    .select("station_id, station_name, city, currency_code, product_id, product_name, price, price_updated_at, availability, availability_source, availability_updated_at, lat, lng")
+    .eq("station_id", stationId)
+    .order("product_name")
+    .abortSignal(signal());
+  if (error) throw new Error(error.message);
+  const stations = groupByStation((data ?? []) as PriceRow[]);
+  return stations[0] ?? null;
+}

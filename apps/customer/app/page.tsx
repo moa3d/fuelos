@@ -100,7 +100,7 @@ export default function HomePage() {
         {shown.map((s) => (
           <li key={s.stationId} className="rounded-lg bg-surface-card p-4 shadow-card">
             <div className="flex items-baseline justify-between">
-              <span className="text-body-strong-14">{s.name}</span>
+              <Link href={`/station/${s.stationId}`} className="text-body-strong-14 hover:underline">{s.name}</Link>
               {s.city && <span className="text-body-small-12 text-text-secondary">{s.city}</span>}
             </div>
             {mapUrl(s.lat, s.lng) && (
