@@ -3,7 +3,7 @@
 // alongside roles/the audit log). Claim/resolve/raise-priority reuse the exact same writes as A4
 // (tickets_admin RLS: is_platform_staff()), so a ticket only ever changes in one place.
 import { formatTime } from "@fuelos/core";
-import { AlertBanner, Button, Input, StatusBadge } from "@fuelos/ui";
+import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import { useEffect, useMemo, useState } from "react";
 import { ticketBadge, type TicketPriority } from "@/lib/dashboard-rules";
 import {
@@ -73,7 +73,8 @@ export default function SupportPage() {
                     active={filter === f.key} onClick={() => setFilter(f.key)} />
                 ))}
               </div>
-              <Input label="" placeholder="ابحث بالموضوع أو المحطة" aria-label="بحث" value={query} onChange={(e) => setQuery(e.target.value)} className="w-64" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالموضوع أو المحطة" aria-label="بحث"
+                className="h-10 w-64 rounded-md border border-border-default bg-surface-card px-3 text-body-regular-14" />
             </div>
 
             {load.data.length === 0 ? (

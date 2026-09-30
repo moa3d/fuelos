@@ -4,7 +4,7 @@
 // its map location yet. Row actions and the full A2 setup wizard (tanks/pumps/readiness checklist) are a
 // bigger slice for later — this only reads, it doesn't manage a station.
 import { formatDay, formatNumber } from "@fuelos/core";
-import { AlertBanner, Button, Input, StatusBadge } from "@fuelos/ui";
+import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { loadStations, type StationRow } from "@/lib/stations-data";
@@ -63,7 +63,8 @@ export default function StationsPage() {
                   active={filter === f.key} onClick={() => setFilter(f.key)} />
               ))}
             </div>
-            <Input label="" placeholder="ابحث بالاسم أو المدينة" aria-label="بحث" value={query} onChange={(e) => setQuery(e.target.value)} className="w-64" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو المدينة" aria-label="بحث"
+              className="h-10 w-64 rounded-md border border-border-default bg-surface-card px-3 text-body-regular-14" />
           </div>
 
           {load.data.length === 0 ? (
