@@ -5,8 +5,12 @@
 // configurable matrix, so this documents them rather than pretending they're editable toggles. Inviting a user
 // goes through the invite-station-member Edge Function (Cowork); the app never holds the service role.
 import { formatDay } from "@fuelos/core";
-import { AlertBanner, Button, cx, Input, StatusBadge } from "@fuelos/ui";
+import { AlertBanner, Button, cx, Input, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useState } from "react";
+import { credentialBadge, generateDeviceId, syncStale } from "@/lib/device-rules";
+import {
+  issueCredential, loadDevices, revokeDevice, type DeviceRow,
+} from "@/lib/devices-data";
 import {
   addPump, addTank, loadTankOptions, type NozzleInput, type ProductOption, type PumpRow, type TankOption,
 } from "@/lib/equipment-data";
@@ -25,16 +29,17 @@ import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
-type Tab = "station" | "tanks" | "users" | "tolerances" | "rewards" | "notifications";
+type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "notifications";
 const TABS: [Tab, string][] = [
   ["station", "المحطة"], ["tanks", "الخزانات والمضخات"], ["users", "المستخدمون والصلاحيات"],
-  ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"], ["notifications", "الإشعارات"],
+  ["devices", "الأجهزة"], ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"], ["notifications", "الإشعارات"],
 ];
 const ROLES: MemberRole[] = ["owner", "accountant", "shift_manager", "attendant"];
 
 export default function SettingsPage() {
   const { current, userId } = useOffice();
   const canManage = current.role === "owner";
+  const canManageDevices = current.role === "owner" || current.role === "shift_manager";
 
   const [tab, setTab] = useState<Tab>("users");
   const [load, setLoad] = useState<Load>({ status: "loading" });
@@ -80,6 +85,7 @@ export default function SettingsPage() {
       {tab === "station" && <LocationTab stationId={current.stationId} canManage={canManage} />}
       {tab === "tanks" && <EquipmentTab stationId={current.stationId} canManage={canManage} />}
       {tab === "rewards" && <RewardsTab stationId={current.stationId} canManage={canManage} currency={current.currencyLabel} />}
+      {tab === "devices" && <DevicesTab stationId={current.stationId} canManage={canManageDevices} />}
       {tab === "notifications" && <ComingSoon text="تفضيلات الإشعارات — قريباً." />}
 
       {tab === "users" && (
@@ -360,6 +366,229 @@ function PumpModal({ stationId, tanks, onClose, onDone }: { stationId: string; t
         </div>
         <div className="flex gap-2">
           <Button variant="action" size="lg" block disabled={!canSave || busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "إضافة"}</Button>
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- الأجهزة (docs/briefs/07a/07b): station_devices() + issue_device_credential()/revoke_device() ----------
+function DevicesTab({ stationId, canManage }: { stationId: string; canManage: boolean }) {
+  const [load, setLoad] = useState<{ status: "loading" } | { status: "error" } | { status: "ready"; data: DeviceRow[] }>({ status: "loading" });
+  const [tick, setTick] = useState(0);
+  const [registering, setRegistering] = useState(false);
+  const [now] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!canManage) return;   // station_devices() itself is owner/shift_manager only — a doomed fetch otherwise
+    let alive = true;
+    loadDevices(stationId).then(
+      (data) => { if (alive) setLoad({ status: "ready", data }); },
+      () => { if (alive) setLoad({ status: "error" }); },
+    );
+    return () => { alive = false; };
+  }, [stationId, canManage, tick]);
+
+  function refresh() { setLoad({ status: "loading" }); setTick((t) => t + 1); }
+
+  if (!canManage) {
+    return (
+      <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+        <h2 className="text-heading-h2-20">الأجهزة</h2>
+        <AlertBanner tone="info" title="إدارة الأجهزة متاحة لصاحب المحطة أو مدير المناوبة فقط">
+          هذا القسم يسجّل الأجهزة التي يدخل منها العمال برموزهم في تطبيق العامل.
+        </AlertBanner>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+      <div className="flex items-center justify-between">
+        <h2 className="text-heading-h2-20">الأجهزة</h2>
+        <Button variant="action" size="md" onClick={() => setRegistering(true)}>+ تسجيل جهاز</Button>
+      </div>
+
+      {load.status === "loading" && <span className="block h-32 animate-pulse rounded-lg bg-surface-muted" />}
+      {load.status === "error" && (
+        <AlertBanner tone="danger" title="تعذّر تحميل الأجهزة" action={<Button variant="secondary" onClick={refresh}>إعادة المحاولة</Button>} />
+      )}
+      {load.status === "ready" && (
+        load.data.length === 0 ? (
+          <p className="text-body-regular-14 text-text-secondary">لا توجد أجهزة مسجّلة بعد — سجّل جهازاً ليدخل العمال من تطبيق العامل برموزهم.</p>
+        ) : (
+          <table className="w-full text-body-regular-14">
+            <thead>
+              <tr className="border-b border-border-default text-body-small-12 text-text-secondary">
+                <th className="p-2 text-start font-normal">الجهاز</th>
+                <th className="p-2 text-start font-normal">الحالة</th>
+                <th className="p-2 text-start font-normal">آخر مزامنة</th>
+                <th className="p-2 text-start font-normal">عمليات معلّقة</th>
+                <th className="p-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-default">
+              {load.data.map((d) => <DeviceRowView key={d.deviceId} d={d} stationId={stationId} now={now} onChanged={refresh} />)}
+            </tbody>
+          </table>
+        )
+      )}
+
+      {registering && <RegisterDeviceModal stationId={stationId} onClose={() => setRegistering(false)} onDone={() => { setRegistering(false); refresh(); }} />}
+    </section>
+  );
+}
+
+function DeviceRowView({ d, stationId, now, onChanged }: {
+  d: DeviceRow; stationId: string; now: number; onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"menu" | "reissue" | "revoke">("menu");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+  const [newSecret, setNewSecret] = useState<string>();
+  const [copied, setCopied] = useState(false);
+  const badge = credentialBadge(d.credentialStatus);
+  const stale = syncStale(d.lastSyncAt, now);
+
+  function close() { setOpen(false); setMode("menu"); setReason(""); setMsg(undefined); setNewSecret(undefined); setCopied(false); }
+
+  async function doReissue() {
+    setBusy(true); setMsg(undefined);
+    const res = await issueCredential(stationId, d.deviceId).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    setNewSecret(res.secret);
+  }
+
+  async function doRevoke() {
+    if (!reason.trim()) return;
+    setBusy(true); setMsg(undefined);
+    const res = await revokeDevice(d.deviceId, reason.trim()).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    close();
+    onChanged();
+  }
+
+  return (
+    <tr>
+      <td className="p-2">
+        <p className="font-semibold">{d.label || "بلا اسم"}</p>
+        <p dir="ltr" className="text-body-small-12 text-text-muted">{d.deviceId}</p>
+      </td>
+      <td className="p-2"><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
+      <td className="p-2 text-text-secondary">
+        <span className={stale ? "text-status-warning-700" : undefined}>{d.lastSyncAt ? timeAgo(d.lastSyncAt, now) : "لم يتزامن بعد"}</span>
+      </td>
+      <td className="p-2 text-text-secondary">{d.pendingOps}</td>
+      <td className="p-2 text-end">
+        <div className="relative inline-block">
+          <button type="button" onClick={() => (open ? close() : setOpen(true))} aria-label="خيارات" className="flex size-8 items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted">⋯</button>
+          {open && (
+            <div className="absolute end-0 z-10 mt-1 w-72 rounded-md border border-border-default bg-surface-card p-3 text-start shadow-raised">
+              {mode === "menu" && (
+                <div className="flex flex-col gap-1">
+                  <button type="button" className="rounded-sm px-2 py-1.5 text-start text-body-small-12 hover:bg-surface-muted" onClick={() => setMode("reissue")}>
+                    إعادة إصدار الرمز
+                  </button>
+                  <button type="button" className="rounded-sm px-2 py-1.5 text-start text-body-small-12 text-status-danger-700 hover:bg-surface-muted" onClick={() => setMode("revoke")}>
+                    إبطال الجهاز
+                  </button>
+                </div>
+              )}
+              {mode === "reissue" && !newSecret && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-body-small-12 text-status-warning-700">الرمز القديم سيتوقف فوراً — هذا الجهاز يحتاج الرمز الجديد ليعمل من جديد.</p>
+                  {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
+                  <div className="flex gap-2">
+                    <Button variant="action" size="md" disabled={busy} onClick={doReissue}>{busy ? "…" : "تأكيد"}</Button>
+                    <Button variant="ghost" size="md" onClick={close}>إلغاء</Button>
+                  </div>
+                </div>
+              )}
+              {mode === "revoke" && (
+                <div className="flex flex-col gap-2">
+                  <TextArea label="سبب الإبطال" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: ضاع الجهاز" />
+                  {msg && <p className="text-body-small-12 text-status-danger-700">{msg}</p>}
+                  <div className="flex gap-2">
+                    <Button variant="danger" size="md" disabled={busy || !reason.trim()} onClick={doRevoke}>{busy ? "…" : "تأكيد الإبطال"}</Button>
+                    <Button variant="ghost" size="md" onClick={close}>إلغاء</Button>
+                  </div>
+                </div>
+              )}
+              {newSecret && <NewSecretPanel deviceId={d.deviceId} secret={newSecret} copied={copied} onCopy={() => setCopied(true)} onDone={() => { close(); onChanged(); }} />}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Shown once, right after issue_device_credential() returns — the server never gives the secret back again. */
+function NewSecretPanel({ deviceId, secret, copied, onCopy, onDone }: {
+  deviceId: string; secret: string; copied: boolean; onCopy: () => void; onDone: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <AlertBanner tone="success" title="جاهز">انسخ البيانات الآن وأدخلها في «إعداد الجهاز» بتطبيق العامل — لن تظهر مرة أخرى.</AlertBanner>
+      <Field label="معرّف الجهاز" value={deviceId} />
+      <Field label="الرمز السري" value={secret} />
+      <div className="flex gap-2">
+        <Button variant="secondary" size="md" onClick={() => { navigator.clipboard?.writeText(`${deviceId}\n${secret}`); onCopy(); }}>
+          {copied ? "تم النسخ ✓" : "نسخ الاثنين"}
+        </Button>
+        <Button variant="action" size="md" onClick={onDone}>تم</Button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-label-11 text-text-secondary">{label}</p>
+      <p dir="ltr" className="break-all rounded-md bg-surface-muted p-2 font-mono text-body-small-12">{value}</p>
+    </div>
+  );
+}
+
+function RegisterDeviceModal({ stationId, onClose, onDone }: { stationId: string; onClose: () => void; onDone: () => void }) {
+  const [label, setLabel] = useState("");
+  const [deviceId] = useState(() => generateDeviceId());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [secret, setSecret] = useState<string>();
+  const [copied, setCopied] = useState(false);
+
+  async function save() {
+    setBusy(true); setError(undefined);
+    const res = await issueCredential(stationId, deviceId, label.trim() || undefined)
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setError(res.message);
+    setSecret(res.secret);
+  }
+
+  if (secret) {
+    return (
+      <Modal title="تسجيل جهاز" onClose={onDone}>
+        <NewSecretPanel deviceId={deviceId} secret={secret} copied={copied} onCopy={() => setCopied(true)} onDone={onDone} />
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="تسجيل جهاز" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {error && <AlertBanner tone="danger" title={error} />}
+        <Input label="اسم الجهاز (اختياري)" autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="مثلاً: تابلت المضخة 3" />
+        <Field label="معرّف الجهاز (يُولَّد تلقائياً)" value={deviceId} />
+        <div className="flex gap-2">
+          <Button variant="action" size="lg" block disabled={busy} onClick={save}>{busy ? "جارٍ التسجيل…" : "تسجيل"}</Button>
           <Button variant="ghost" onClick={onClose}>إلغاء</Button>
         </div>
       </div>
