@@ -8,7 +8,9 @@ import {
   canDecide, closeChoices, decisionSupported, defaultChoice, noteHint, noteRequired, whoCanDecide,
   type ApprovalType, type Choice,
 } from "@/lib/approval-rules";
-import { decide, loadApprovals, reopenShift, type ApprovalsData, type CloseSnapshot, type Request } from "@/lib/approvals";
+import {
+  decide, loadApprovals, loadLegPhotos, reopenShift, type ApprovalsData, type CloseSnapshot, type LegPhotos, type Request,
+} from "@/lib/approvals";
 import { cents, centsStr } from "@/lib/dashboard";
 import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
@@ -418,13 +420,16 @@ function CloseBody({ r, snap, money, diff }: { r: Request; snap: CloseSnapshot; 
           <h3 className="mb-2 text-heading-h3-16">المضخات في هذه المناوبة</h3>
           <ul className="flex flex-col divide-y divide-border-default rounded-md border border-border-default">
             {snap.legs.map((l, i) => (
-              <li key={i} className="flex items-start justify-between gap-3 p-3 text-body-regular-14">
-                <div>
-                  <p className="font-semibold">مضخة {l.pump_number}</p>
-                  <p className="text-body-small-12 text-text-secondary">{formatTime(l.started_at)} – {l.ended_at ? formatTime(l.ended_at) : "…"}</p>
-                  {l.gap_note && <p className="mt-1 text-body-small-12 text-status-warning-700">فرق قراءة عند البداية: {l.gap_note}</p>}
+              <li key={i} className="flex flex-col gap-2 p-3 text-body-regular-14">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">مضخة {l.pump_number}</p>
+                    <p className="text-body-small-12 text-text-secondary">{formatTime(l.started_at)} – {l.ended_at ? formatTime(l.ended_at) : "…"}</p>
+                    {l.gap_note && <p className="mt-1 text-body-small-12 text-status-warning-700">فرق قراءة عند البداية: {l.gap_note}</p>}
+                  </div>
+                  <div className="text-end"><p className="font-semibold">{formatNumber(Number(l.liters), 1)} لتر</p><p className="text-body-small-12 text-text-secondary">{money(cents(l.amount))}</p></div>
                 </div>
-                <div className="text-end"><p className="font-semibold">{formatNumber(Number(l.liters), 1)} لتر</p><p className="text-body-small-12 text-text-secondary">{money(cents(l.amount))}</p></div>
+                {l.leg_id && <LegPhotoLinks legId={l.leg_id} />}
               </li>
             ))}
           </ul>
@@ -438,7 +443,28 @@ function CloseBody({ r, snap, money, diff }: { r: Request; snap: CloseSnapshot; 
           <p className="text-body-regular-14 text-text-secondary">{diff !== 0n ? "لم يكتب العامل سبباً." : "لم يكتب العامل ملاحظة."}</p>
         )}
       </section>
-      <p className="text-body-small-12 text-text-muted">صور العداد والصندوق: قريباً — بعد تجهيز تخزين الملفات.</p>
+    </div>
+  );
+}
+
+/** Lazy per-leg fetch: only the legs of the currently-open request ever get queried. */
+function LegPhotoLinks({ legId }: { legId: string }) {
+  const [photos, setPhotos] = useState<LegPhotos | "loading" | "error">("loading");
+
+  useEffect(() => {
+    let alive = true;
+    loadLegPhotos(legId).then((p) => { if (alive) setPhotos(p); }, () => { if (alive) setPhotos("error"); });
+    return () => { alive = false; };
+  }, [legId]);
+
+  if (photos === "loading") return null;
+  if (photos === "error" || (!photos.openingUrl && !photos.closingUrl)) {
+    return <p className="text-body-small-12 text-text-muted">لا صور عداد لهذه المضخة.</p>;
+  }
+  return (
+    <div className="flex gap-2">
+      {photos.openingUrl && <a href={photos.openingUrl} target="_blank" rel="noreferrer" className="text-body-small-12 text-brand-primary">📷 صورة الافتتاح</a>}
+      {photos.closingUrl && <a href={photos.closingUrl} target="_blank" rel="noreferrer" className="text-body-small-12 text-brand-primary">📷 صورة الإغلاق</a>}
     </div>
   );
 }

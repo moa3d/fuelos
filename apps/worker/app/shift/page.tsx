@@ -3,9 +3,10 @@
 // Every fill is recorded (owner's decision 2026-09-26; cash fills don't change expected cash).
 // The price is the one locked at shift open; record_sale goes into the outbox with the current leg (p_leg).
 import { formatMoney, formatNumber } from "@fuelos/core";
-import { AlertBanner, Button, cx, operationsText, StatusBadge } from "@fuelos/ui";
+import { AlertBanner, Button, cx, Input, operationsText, StatusBadge } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lookupCustomerForSale, type CustomerMatch } from "@/lib/customer-lookup";
 import { currentLeg, db, getDevice, type CurrentMember, type StationRef } from "@/lib/db";
 import { centsToString, toCents } from "@/lib/money";
 import { assertRoom, newOutboxRow, OutboxFullError, syncNow } from "@/lib/outbox";
@@ -40,6 +41,7 @@ export default function QuickFillPage() {
   const [value, setValue] = useState("");
   const [nozzleId, setNozzleId] = useState<string>();
   const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [customer, setCustomer] = useState<CustomerMatch | null>(null);
   const [hint, setHint] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
@@ -109,6 +111,7 @@ export default function QuickFillPage() {
     setValue("");
     setHint(undefined);
     setMethod("cash");
+    setCustomer(null);
     setSaveError(undefined);
     setSavedId(undefined);
   }
@@ -130,6 +133,7 @@ export default function QuickFillPage() {
         p_liters: milliToString(litersMilli),
         p_unit_price: centsToString(price),
         p_method: method,
+        p_customer: customer?.customerId ?? null,
         p_device: device?.deviceId ?? null,
         p_client_created_at: new Date().toISOString(),
       };
@@ -284,14 +288,7 @@ export default function QuickFillPage() {
               </div>
             </section>
 
-            <div className="flex items-center gap-3 rounded-md border border-dashed border-border-strong bg-surface-card p-3" aria-disabled>
-              <span className="text-text-muted"><QrIcon /></span>
-              <div className="flex-1">
-                <p className="text-body-strong-14">ربط زبون (اختياري)</p>
-                <p className="text-body-small-12 text-text-secondary">فقط إن أراد فاتورة رقمية أو نقاطاً</p>
-              </div>
-              <StatusBadge tone="neutral">قريباً</StatusBadge>
-            </div>
+            <CustomerLinkCard stationId={ref?.stationId} online={online} customer={customer} onChange={setCustomer} />
 
             <section className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 shadow-card">
               <p className="text-body-small-12 text-text-secondary">
@@ -313,6 +310,73 @@ export default function QuickFillPage() {
           {saving ? "جارٍ الحفظ…" : "حفظ العملية"}
         </StickyAction>
       )}
+    </div>
+  );
+}
+
+/** «ربط زبون (اختياري)» (docs/briefs/06d, delivered in 06e): needs the network, and never blocks the sale. */
+function CustomerLinkCard({ stationId, online, customer, onChange }: {
+  stationId: string | undefined; online: boolean; customer: CustomerMatch | null; onChange: (c: CustomerMatch | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  async function search() {
+    if (!stationId || !query.trim() || busy) return;
+    setBusy(true); setMsg(undefined);
+    const res = await lookupCustomerForSale(stationId, query.trim()).catch(() => ({ ok: false as const, message: "تعذّر البحث — تحقق من الاتصال" }));
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    if (!res.match) return setMsg("لم يُعثر على زبون بهذا الرمز أو الرقم");
+    onChange(res.match);
+    setOpen(false);
+    setQuery("");
+  }
+
+  if (customer) {
+    return (
+      <div className="flex items-center gap-3 rounded-md border border-brand-primary bg-brand-primary-50 p-3">
+        <span className="text-brand-primary"><QrIcon /></span>
+        <div className="flex-1">
+          <p className="text-body-strong-14">تأكد من الاسم: {customer.displayName}</p>
+          <p className="text-body-small-12 text-text-secondary">{customer.matchedBy === "card" ? "بالبطاقة" : "بالهاتف"} · نقاطه {formatNumber(customer.points, 0)}</p>
+        </div>
+        <Button variant="ghost" size="md" onClick={() => onChange(null)}>إلغاء الربط</Button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}
+        className="flex items-center gap-3 rounded-md border border-dashed border-border-strong bg-surface-card p-3 text-start">
+        <span className="text-text-muted"><QrIcon /></span>
+        <div className="flex-1">
+          <p className="text-body-strong-14">ربط زبون (اختياري)</p>
+          <p className="text-body-small-12 text-text-secondary">فقط إن أراد فاتورة رقمية أو نقاطاً</p>
+        </div>
+        <StatusBadge tone="neutral">ربط</StatusBadge>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border-default bg-surface-card p-3">
+      {!online ? (
+        <p className="text-body-small-12 text-status-warning-700">الربط يحتاج اتصالاً — يمكن البيع بدون ربط</p>
+      ) : (
+        <>
+          <Input size="md" label="رمز البطاقة أو رقم الهاتف" dir="ltr" autoComplete="off" value={query}
+            onChange={(e) => setQuery(e.target.value)} error={msg} />
+          <div className="flex gap-2">
+            <Button variant="action" size="md" disabled={!query.trim() || busy} onClick={search}>{busy ? "جارٍ البحث…" : "بحث"}</Button>
+            <Button variant="ghost" size="md" onClick={() => { setOpen(false); setQuery(""); setMsg(undefined); }}>إلغاء</Button>
+          </div>
+        </>
+      )}
+      {!online && <Button variant="ghost" size="md" onClick={() => setOpen(false)}>إغلاق</Button>}
     </div>
   );
 }

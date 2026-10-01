@@ -36,3 +36,12 @@ export async function loadStations(): Promise<StationRow[]> {
     createdAt: s.created_at as string,
   }));
 }
+
+export type StationHeader = { id: string; name: string; city: string | null; status: StationStatus };
+
+/** For the station detail page's header — a single row, not the whole platform-wide join. */
+export async function loadStationHeader(stationId: string): Promise<StationHeader | undefined> {
+  const { data, error } = await supabase().from("stations").select("id, name, city, status").eq("id", stationId).abortSignal(signal()).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? { id: data.id, name: data.name, city: data.city, status: data.status as StationStatus } : undefined;
+}

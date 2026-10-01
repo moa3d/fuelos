@@ -2,8 +2,10 @@
 // Pieces shared by S1, the move flow and the close wizard (S4–S6).
 import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
 import { Button, cx, Input, StatusBadge, TextArea } from "@fuelos/ui";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LegReading, PumpRef } from "@/lib/db";
+import { newId } from "@/lib/uuid";
+import { uploadMeterPhoto, type PhotoKind } from "@/lib/meter-photo";
 import type { ReadingCheck } from "@/lib/reading";
 
 /** Pump picker. A busy pump stays visible but disabled, with who has it («مع …»): don't hide, explain. */
@@ -162,16 +164,70 @@ export function AutoTotals({ litersTenths, amountCents, currencyLabel, missingPr
   );
 }
 
-/** Meter photo: optional and not built yet (Storage). Shown disabled with the reason. */
-export function MeterPhotoCard({ title }: { title: string }) {
+/**
+ * Meter photo (docs/briefs/06c, delivered in 06e): optional, uploaded immediately while online. One photo
+ * documents the whole pump, so `onChange` is called once with the path shared by every nozzle of this
+ * opening/closing — never blocks the screen's primary action, online or not.
+ */
+export function MeterPhotoCard({ title, stationId, legId, nozzleId, kind, value, onChange }: {
+  title: string; stationId: string; legId: string; nozzleId: string; kind: PhotoKind;
+  value: string | null; onChange: (path: string | null) => void;
+}) {
+  const [preview, setPreview] = useState<string>();
+  const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">(value ? "done" : "idle");
+  const [error, setError] = useState<string>();
+  const photoId = useRef(newId());
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  async function pick(file: File) {
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(URL.createObjectURL(file));
+    setStatus("uploading");
+    setError(undefined);
+    const res = await uploadMeterPhoto({ stationId, legId, nozzleId, kind, file, photoId: photoId.current })
+      .catch(() => ({ ok: false as const, message: "تعذّر رفع الصورة — يمكنك المتابعة بدون صورة" }));
+    if (res.ok) {
+      setStatus("done");
+      onChange(res.path);
+    } else {
+      setStatus("error");
+      setError(res.message);
+      onChange(null);
+    }
+  }
+
+  function retake() {
+    photoId.current = newId();
+    inputRef.current?.click();
+  }
+
   return (
-    <div className="flex items-center gap-3 rounded-md border border-dashed border-border-strong bg-surface-card p-3" aria-disabled>
-      <span className="flex size-12 items-center justify-center rounded-md bg-surface-muted text-text-muted"><CameraIcon /></span>
-      <div className="flex-1">
-        <p className="text-body-strong-14">{title}</p>
-        <p className="text-body-small-12 text-text-secondary">اختيارية — تُفعَّل بعد تجهيز تخزين الصور</p>
+    <div className="flex flex-col gap-2 rounded-md border border-dashed border-border-strong bg-surface-card p-3">
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); e.target.value = ""; }} />
+      <div className="flex items-center gap-3">
+        <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-muted text-text-muted">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element -- a local blob: preview, not a next/image asset
+            <img src={preview} alt="" className="size-full object-cover" />
+          ) : <CameraIcon />}
+        </span>
+        <div className="flex-1">
+          <p className="text-body-strong-14">{title}</p>
+          <p className="text-body-small-12 text-text-secondary">
+            {status === "uploading" ? "جارٍ الرفع…" : status === "done" ? "أُرفقت الصورة ✓" : status === "error" ? error : "اختيارية"}
+          </p>
+        </div>
+        {status === "uploading" ? (
+          <StatusBadge tone="info">جارٍ الرفع</StatusBadge>
+        ) : status === "idle" ? (
+          <Button variant="secondary" size="md" onClick={() => inputRef.current?.click()}>إضافة</Button>
+        ) : (
+          <Button variant="ghost" size="md" onClick={retake}>{status === "error" ? "إعادة المحاولة" : "تغيير"}</Button>
+        )}
       </div>
-      <StatusBadge tone="neutral">قريباً</StatusBadge>
     </div>
   );
 }

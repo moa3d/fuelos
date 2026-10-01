@@ -30,6 +30,7 @@ export default function CloseShiftPage() {
   const [summary, setSummary] = useState<ServerSummary>();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [closing, setClosing] = useState<Record<string, string>>({});
+  const [closingPhotoPath, setClosingPhotoPath] = useState<string | null>(null);
   const [counted, setCounted] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -101,7 +102,10 @@ export default function CloseShiftPage() {
       const rowId = newId();
       const params = {
         p_shift: shift.shiftId,
-        p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typed.get(r.nozzleId)! / 10 })),
+        p_closing: leg.readings.map((r) => ({
+          nozzle_id: r.nozzleId, closing_reading: typed.get(r.nozzleId)! / 10,
+          ...(closingPhotoPath ? { photo_path: closingPhotoPath } : {}),
+        })),
         p_counted_cash: countedValue,                        // digits string → numeric on the server
         p_diff_reason: reason.trim() || null,
       };
@@ -152,7 +156,8 @@ export default function CloseShiftPage() {
               checks={closeCheck.checks} onChange={(id, v) => setClosing((c) => ({ ...c, [id]: v }))} />
             <AutoTotals litersTenths={currentTotals.litersTenths} amountCents={centsToString(currentTotals.amountCents)}
               currencyLabel={currency} missingPrice={currentTotals.missingPrice} estimate={!summary} />
-            <MeterPhotoCard title="صورة العداد النهائية" />
+            <MeterPhotoCard title="صورة العداد النهائية" stationId={me.stationId} legId={leg.legId} nozzleId={leg.readings[0].nozzleId}
+              kind="closing" value={closingPhotoPath} onChange={setClosingPhotoPath} />
           </>
         )}
 

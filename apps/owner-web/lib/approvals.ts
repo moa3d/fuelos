@@ -7,7 +7,7 @@ import { supabase } from "./supabase";
 type Num = number | string;
 
 export type Leg = {
-  pump_number: number; started_at: string; ended_at: string | null; gap_note: string | null; liters: Num; amount: Num;
+  leg_id?: string; pump_number: number; started_at: string; ended_at: string | null; gap_note: string | null; liters: Num; amount: Num;
 };
 export type CloseSnapshot = {
   liters?: Num; meter_sales?: Num; card?: Num; credit?: Num; voucher?: Num;
@@ -164,6 +164,25 @@ export async function reopenShift(shiftId: string, reason: string): Promise<{ ok
     FUELOS_BAD_SHIFT_TRANSITION: "حالة المناوبة لا تسمح بإعادة الفتح",
   };
   return { ok: false, message: (code && local[code]) || messageOf(error) };
+}
+
+// ---------- meter photos (docs/briefs/06c, delivered in 06e) ----------
+export type LegPhotos = { openingUrl: string | null; closingUrl: string | null };
+
+/** One photo documents a whole pump-visit, so the first non-null path of the leg's readings is enough. */
+export async function loadLegPhotos(legId: string): Promise<LegPhotos> {
+  const { data, error } = await supabase().from("leg_readings").select("opening_photo_path, closing_photo_path").eq("leg_id", legId).abortSignal(signal());
+  if (error) throw new Error(error.message);
+  const openingPath = (data ?? []).map((r) => r.opening_photo_path as string | null).find((p) => p) ?? null;
+  const closingPath = (data ?? []).map((r) => r.closing_photo_path as string | null).find((p) => p) ?? null;
+  const [openingUrl, closingUrl] = await Promise.all([signedUrl(openingPath), signedUrl(closingPath)]);
+  return { openingUrl, closingUrl };
+}
+
+async function signedUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  const { data, error } = await supabase().storage.from("meter-photos").createSignedUrl(path, 300);
+  return error ? null : data.signedUrl;
 }
 
 function centsOf(v: Num): bigint {

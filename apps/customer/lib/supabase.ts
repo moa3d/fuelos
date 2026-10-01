@@ -2,7 +2,7 @@
 // office app, there is no "remember this device" toggle here: it's a personal phone, not a shared till.
 import { createSupabaseClient } from "@fuelos/core";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./env";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./env.ts";
 
 let client: SupabaseClient | undefined;
 

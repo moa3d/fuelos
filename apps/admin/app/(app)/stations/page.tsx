@@ -89,7 +89,7 @@ export default function StationsPage() {
                   const badge = stationBadge(s.status);
                   return (
                     <tr key={s.id}>
-                      <td className="p-3 text-body-strong-14">{s.name}</td>
+                      <td className="p-3 text-body-strong-14"><Link href={`/stations/${s.id}`} className="hover:underline">{s.name}</Link></td>
                       <td className="p-3 text-text-secondary">{s.city ?? "—"}</td>
                       <td className="p-3"><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
                       <td className="p-3 text-text-secondary">{s.planName ?? "—"}</td>

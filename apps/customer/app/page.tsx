@@ -17,8 +17,9 @@ import { timeAgo } from "@/lib/time-ago";
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: PricesData };
 // href: null until that screen is built (C2/C6/C7 still ahead) — same one-screen-at-a-time order as O1–O11.
 const QUICK_ACTIONS: { icon: string; label: string; href: string | null }[] = [
-  { icon: "💬", label: "الشكاوى", href: "/rewards?tab=complaints" }, { icon: "🎁", label: "العروض", href: "/rewards" },
-  { icon: "🧾", label: "فواتيري", href: "/invoices" }, { icon: "🚗", label: "سياراتي", href: "/vehicles" },
+  { icon: "💳", label: "بطاقتي", href: "/card" }, { icon: "💬", label: "الشكاوى", href: "/rewards?tab=complaints" },
+  { icon: "🎁", label: "العروض", href: "/rewards" }, { icon: "🧾", label: "فواتيري", href: "/invoices" },
+  { icon: "🚗", label: "سياراتي", href: "/vehicles" },
 ];
 
 export default function HomePage() {
@@ -67,7 +68,7 @@ export default function HomePage() {
         )}
       </header>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {QUICK_ACTIONS.map((a) => {
           const content = <><span aria-hidden className="text-heading-h2-20">{a.icon}</span>{a.label}</>;
           const tileClass = "flex flex-col items-center gap-1 rounded-lg bg-surface-card p-3 text-body-small-12 text-text-secondary shadow-card";

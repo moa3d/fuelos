@@ -27,7 +27,9 @@ export default function ShiftStartPage() {
   const [me, setMe] = useState<CurrentMember>();
   const [phase, setPhase] = useState<Phase>({ status: "loading" });
   const [pumpId, setPumpId] = useState<string>();
+  const [legId, setLegId] = useState<string>();
   const [readings, setReadings] = useState<Record<string, string>>({});
+  const [openingPhotoPath, setOpeningPhotoPath] = useState<string | null>(null);
   const [gapNote, setGapNote] = useState("");
   const [cash, setCash] = useState("");
   const [saving, setSaving] = useState(false);
@@ -82,6 +84,8 @@ export default function ShiftStartPage() {
   function choosePump(id: string) {
     const p = ref?.pumps.find((x) => x.id === id);
     setPumpId(id);
+    setLegId(newId());                 // stable through the meter photo's upload path and the final open_shift call
+    setOpeningPhotoPath(null);
     setGapNote("");
     // prefilled with the last closing reading (spec §6); the attendant checks it against the meter
     setReadings(Object.fromEntries(p?.nozzles.map((n) => [n.id, String(n.lastReading)]) ?? []));
@@ -91,11 +95,10 @@ export default function ShiftStartPage() {
     if (busy.current) return;                           // a double tap must not queue two rows
     busy.current = true;
     try {
-      if (!me || !ref || !pump || missing || saving || cashValue === null) return;
+      if (!me || !ref || !pump || !legId || missing || saving || cashValue === null) return;
       setSaving(true);
       setSaveError(undefined);
       const shiftId = newId();
-      const legId = newId();
       const openedAt = new Date().toISOString();
       const tenths = new Map(opening.readings.map((r) => [r.nozzleId, r.tenths]));
       const note = opening.gapTenths > 0 ? gapNote.trim() : null;
@@ -105,7 +108,10 @@ export default function ShiftStartPage() {
         p_leg_id: legId,
         p_pump: pump.id,
         p_opening_cash: cashValue,                          // digits string → numeric on the server
-        p_readings: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: tenths.get(n.id)! / 10 })),
+        p_readings: pump.nozzles.map((n) => ({
+          nozzle_id: n.id, opening_reading: tenths.get(n.id)! / 10,
+          ...(openingPhotoPath ? { photo_path: openingPhotoPath } : {}),
+        })),
         p_gap_note: note,
         p_device: device?.deviceId ?? null,
         p_client_created_at: openedAt,
@@ -200,7 +206,10 @@ export default function ShiftStartPage() {
                   onChange={(id, v) => setReadings((r) => ({ ...r, [id]: v }))} onGapNote={setGapNote}
                 />
               )}
-              {pump && <MeterPhotoCard title="صورة العداد" />}
+              {pump && legId && (
+                <MeterPhotoCard title="صورة العداد" stationId={me.stationId} legId={legId} nozzleId={pump.nozzles[0].id}
+                  kind="opening" value={openingPhotoPath} onChange={setOpeningPhotoPath} />
+              )}
             </section>
 
             <section>

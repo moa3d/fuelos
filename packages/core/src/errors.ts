@@ -1,6 +1,6 @@
 // FUELOS_* error code → Arabic message. The user never sees the raw code.
 // Source of truth for the wording: .claude/skills/fuelos-offline-sync (keep both in sync).
-import { formatTime } from "./format";
+import { formatTime } from "./format.ts";
 
 export type ErrorDetail = Record<string, unknown> | undefined;
 

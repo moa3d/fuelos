@@ -8,6 +8,9 @@ import { formatDay } from "@fuelos/core";
 import { AlertBanner, Button, cx, Input, StatusBadge } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import {
+  addPump, addTank, loadTankOptions, type NozzleInput, type ProductOption, type TankOption,
+} from "@/lib/equipment-data";
+import {
   changeRole, inviteMember, joinLink, loadSettings, resendInviteLink, setAttendantPin, setMemberStatus,
   updateTolerances, whatsappShareUrl, type Login, type MemberRow, type Outcome, type SettingsData, type Tolerances,
 } from "@/lib/settings-data";
@@ -75,7 +78,7 @@ export default function SettingsPage() {
       </div>
 
       {tab === "station" && <LocationTab stationId={current.stationId} canManage={canManage} />}
-      {tab === "tanks" && <ComingSoon text="إعداد الخزانات والمضخات (إضافة خزان أو مضخة جديدة) — قريباً." />}
+      {tab === "tanks" && <EquipmentTab stationId={current.stationId} canManage={canManage} />}
       {tab === "rewards" && <RewardsTab stationId={current.stationId} canManage={canManage} currency={current.currencyLabel} />}
       {tab === "notifications" && <ComingSoon text="تفضيلات الإشعارات — قريباً." />}
 
@@ -189,6 +192,157 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 function ComingSoon({ text }: { text: string }) {
   return <AlertBanner tone="info" title="هذا القسم قيد الإعداد">{text}</AlertBanner>;
+}
+
+// ---------- الخزانات والمضخات (docs/briefs/06b/06e): additive only, through setup_station_equipment() ----------
+function EquipmentTab({ stationId, canManage }: { stationId: string; canManage: boolean }) {
+  const [options, setOptions] = useState<{ tanks: TankOption[]; products: ProductOption[] }>();
+  const [tick, setTick] = useState(0);
+  const [modal, setModal] = useState<"tank" | "pump">();
+
+  useEffect(() => { loadTankOptions(stationId).then(setOptions); }, [stationId, tick]);
+  function refresh() { setTick((t) => t + 1); }
+
+  if (!options) return <span className="block h-48 animate-pulse rounded-lg bg-surface-muted" />;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+      <div className="flex items-center justify-between">
+        <h2 className="text-heading-h2-20">الخزانات والمضخات</h2>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="md" disabled={!canManage} title={canManage ? undefined : "إضافة معدات متاحة لصاحب المحطة فقط"} onClick={() => setModal("tank")}>+ إضافة خزان</Button>
+          <Button variant="action" size="md" disabled={!canManage || options.tanks.length === 0} title={!canManage ? "إضافة معدات متاحة لصاحب المحطة فقط" : options.tanks.length === 0 ? "أضف خزاناً أولاً" : undefined} onClick={() => setModal("pump")}>+ إضافة مضخة</Button>
+        </div>
+      </div>
+      {options.tanks.length === 0 ? (
+        <p className="text-body-regular-14 text-text-secondary">لا توجد خزانات بعد — ابدأ بإضافة خزان، ثم أضف مضخة تسحب منه.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border-default">
+          {options.tanks.map((t) => (
+            <li key={t.id} className="flex items-center justify-between py-2 text-body-regular-14">
+              <span>{t.name}</span><span className="text-text-secondary">{t.productName}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-body-small-12 text-text-secondary">التعديل التفصيلي (السعة، الحد الأدنى) من صفحة «الخزانات والمخزون».</p>
+
+      {modal === "tank" && <TankModal stationId={stationId} products={options.products} onClose={() => setModal(undefined)} onDone={() => { setModal(undefined); refresh(); }} />}
+      {modal === "pump" && <PumpModal stationId={stationId} tanks={options.tanks} onClose={() => setModal(undefined)} onDone={() => { setModal(undefined); refresh(); }} />}
+    </section>
+  );
+}
+
+function TankModal({ stationId, products, onClose, onDone }: { stationId: string; products: ProductOption[]; onClose: () => void; onDone: () => void }) {
+  const [productCode, setProductCode] = useState(products[0]?.code ?? "");
+  const [name, setName] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [minPct, setMinPct] = useState("20");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const capacityOk = /^\d+$/.test(capacity.trim()) && Number(capacity) > 0;
+  const minPctOk = /^\d+$/.test(minPct.trim()) && Number(minPct) >= 0 && Number(minPct) <= 100;
+  const canSave = !!productCode && name.trim() && capacityOk && minPctOk;
+
+  async function save() {
+    if (!canSave || busy) return;
+    setBusy(true); setError(undefined);
+    const res = await addTank(stationId, { productCode, name: name.trim(), capacityL: capacity.trim(), minLevelPct: minPct.trim() })
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setError(res.message);
+    onDone();
+  }
+
+  return (
+    <Modal title="إضافة خزان" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {error && <AlertBanner tone="danger" title={error} />}
+        <label className="flex flex-col gap-1 text-label-12 text-text-secondary">
+          الوقود
+          <select value={productCode} onChange={(e) => setProductCode(e.target.value)} className="h-11 rounded-md border border-border-strong bg-surface-card px-3 text-body-regular-14">
+            {products.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+          </select>
+        </label>
+        <Input label="اسم الخزان" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input label="السعة" inputMode="numeric" autoComplete="off" suffix="لتر" value={capacity} onChange={(e) => setCapacity(e.target.value)}
+          error={capacity !== "" && !capacityOk ? "أدخل عدداً صحيحاً موجباً" : undefined} />
+        <Input label="الحد الأدنى" inputMode="numeric" autoComplete="off" suffix="%" value={minPct} onChange={(e) => setMinPct(e.target.value)}
+          error={!minPctOk ? "أدخل نسبة من 0 إلى 100" : undefined} />
+        <div className="flex gap-2">
+          <Button variant="action" size="lg" block disabled={!canSave || busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "إضافة"}</Button>
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PumpModal({ stationId, tanks, onClose, onDone }: { stationId: string; tanks: TankOption[]; onClose: () => void; onDone: () => void }) {
+  const [number, setNumber] = useState("");
+  const [name, setName] = useState("");
+  const [nozzles, setNozzles] = useState<NozzleInput[]>([{ label: "1", tankId: tanks[0]?.id ?? "", lastReading: "0" }]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const numberOk = /^\d+$/.test(number.trim()) && Number(number) > 0;
+  const nozzlesOk = nozzles.every((n) => n.tankId && /^\d+(\.\d{1,1})?$/.test(n.lastReading.trim()));
+  const canSave = numberOk && nozzlesOk && nozzles.length > 0;
+
+  function setNozzle(i: number, patch: Partial<NozzleInput>) {
+    setNozzles((ns) => ns.map((n, idx) => idx === i ? { ...n, ...patch } : n));
+  }
+  function addNozzle() {
+    setNozzles((ns) => [...ns, { label: String(ns.length + 1), tankId: tanks[0]?.id ?? "", lastReading: "0" }]);
+  }
+  function removeNozzle(i: number) {
+    setNozzles((ns) => ns.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    if (!canSave || busy) return;
+    setBusy(true); setError(undefined);
+    const res = await addPump(stationId, { number: number.trim(), name: name.trim(), nozzles })
+      .catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
+    setBusy(false);
+    if (!res.ok) return setError(res.message);
+    onDone();
+  }
+
+  return (
+    <Modal title="إضافة مضخة" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {error && <AlertBanner tone="danger" title={error} />}
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="رقم المضخة" inputMode="numeric" autoComplete="off" value={number} onChange={(e) => setNumber(e.target.value)}
+            error={number !== "" && !numberOk ? "أدخل رقماً صحيحاً" : undefined} />
+          <Input label="اسم المضخة (اختياري)" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-label-12 text-text-secondary">المسدسات</p>
+          {nozzles.map((n, i) => (
+            <div key={i} className="flex items-end gap-2 rounded-md bg-surface-muted p-2">
+              <Input label="التسمية" autoComplete="off" value={n.label} onChange={(e) => setNozzle(i, { label: e.target.value })} className="w-20" />
+              <label className="flex flex-1 flex-col gap-1 text-label-12 text-text-secondary">
+                الخزان
+                <select value={n.tankId} onChange={(e) => setNozzle(i, { tankId: e.target.value })} className="h-11 rounded-md border border-border-strong bg-surface-card px-3 text-body-regular-14">
+                  {tanks.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.productName}</option>)}
+                </select>
+              </label>
+              <Input label="القراءة الحالية" inputMode="decimal" autoComplete="off" suffix="لتر" value={n.lastReading} onChange={(e) => setNozzle(i, { lastReading: e.target.value })} className="w-32" />
+              {nozzles.length > 1 && <Button variant="ghost" size="md" onClick={() => removeNozzle(i)}>حذف</Button>}
+            </div>
+          ))}
+          <Button variant="secondary" size="md" onClick={addNozzle}>+ مسدس آخر</Button>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="action" size="lg" block disabled={!canSave || busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "إضافة"}</Button>
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 // ---------- users & permissions ----------

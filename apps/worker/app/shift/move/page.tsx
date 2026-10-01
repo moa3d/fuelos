@@ -28,6 +28,7 @@ export default function MovePage() {
   const [refCached, setRefCached] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [closing, setClosing] = useState<Record<string, string>>({});
+  const [closingPhotoPath, setClosingPhotoPath] = useState<string | null>(null);
   const [pumpId, setPumpId] = useState<string>();
   const [opening, setOpening] = useState<Record<string, string>>({});
   const [gapNote, setGapNote] = useState("");
@@ -87,7 +88,10 @@ export default function MovePage() {
       const params = {
         p_shift: shift.shiftId,
         p_new_leg_id: newLegId,
-        p_closing: leg.readings.map((r) => ({ nozzle_id: r.nozzleId, closing_reading: typedClosing.get(r.nozzleId)! / 10 })),
+        p_closing: leg.readings.map((r) => ({
+          nozzle_id: r.nozzleId, closing_reading: typedClosing.get(r.nozzleId)! / 10,
+          ...(closingPhotoPath ? { photo_path: closingPhotoPath } : {}),
+        })),
         p_new_pump: pump.id,
         p_opening: pump.nozzles.map((n) => ({ nozzle_id: n.id, opening_reading: openTenths.get(n.id)! / 10 })),
         p_gap_note: note,
@@ -152,7 +156,8 @@ export default function MovePage() {
               checks={closeCheck.checks} onChange={(id, v) => setClosing((c) => ({ ...c, [id]: v }))} />
             <AutoTotals litersTenths={preview.litersTenths} amountCents={centsToString(preview.meterSalesCents)}
               currencyLabel={ref?.currencyLabel ?? "ل.س"} missingPrice={preview.missingPrice} />
-            <MeterPhotoCard title="صورة العداد النهائية" />
+            <MeterPhotoCard title="صورة العداد النهائية" stationId={me.stationId} legId={leg.legId} nozzleId={leg.readings[0].nozzleId}
+              kind="closing" value={closingPhotoPath} onChange={setClosingPhotoPath} />
           </>
         )}
 

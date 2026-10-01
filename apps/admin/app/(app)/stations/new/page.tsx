@@ -3,6 +3,7 @@
 // the station and shares a one-time join link with the owner — no self sign-up. onboard-station does the real
 // work (organization + station + active owner + catalog defaults + trial subscription); nothing is emailed.
 import { AlertBanner, Button, Input } from "@fuelos/ui";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createStation, joinLink, loadPlans, whatsappShareUrl, type CreateStationResult, type Login, type PlanOption } from "@/lib/onboarding-data";
 
@@ -20,7 +21,7 @@ export default function NewStationPage() {
   const [lng, setLng] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [result, setResult] = useState<{ stationName: string; login: Login | null; ownerNew: boolean }>();
+  const [result, setResult] = useState<{ stationId: string; stationName: string; login: Login | null; ownerNew: boolean }>();
 
   useEffect(() => { loadPlans().then(setPlans); }, []);
 
@@ -38,7 +39,7 @@ export default function NewStationPage() {
     }).catch(() => ({ ok: false as const, message: "لا يوجد اتصال بالخادم" }));
     setBusy(false);
     if (!res.ok) return setError(res.message);
-    setResult({ stationName: stationName.trim(), login: res.login, ownerNew: !!res.login });
+    setResult({ stationId: res.stationId, stationName: stationName.trim(), login: res.login, ownerNew: !!res.login });
   }
 
   function reset() {
@@ -71,7 +72,10 @@ export default function NewStationPage() {
               </div>
             </div>
           )}
-          <Button variant="secondary" onClick={reset}>إنشاء محطة أخرى</Button>
+          <div className="flex gap-2">
+            <Link href={`/stations/${result.stationId}`}><Button variant="action">تجهيز المعدات الآن</Button></Link>
+            <Button variant="secondary" onClick={reset}>إنشاء محطة أخرى</Button>
+          </div>
         </section>
       ) : (
         <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
