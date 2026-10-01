@@ -5,6 +5,11 @@ Needs the Supabase connection (a new SECURITY DEFINER RPC, multi-table), so it g
 **Nothing here blocks today's A2**: `admin_create_station()` (docs/briefs/06a) creates the organization,
 station and owner, and a real join link, all of which work. This is the next layer down.
 
+**Status (2026-10-01): done.** Cowork shipped `setup_station_equipment()`/`station_readiness()` (docs/briefs/06e).
+Admin equips a station from a template with live meter readings and sees the 7-item readiness checklist
+(`apps/admin/app/(app)/stations/[id]/page.tsx`); owner-web's settings «الخزانات والمضخات» tab uses the same RPC
+to add a tank or pump later. Verified end to end in a real browser against the hosted project.
+
 ## What's missing
 A station created by `admin_create_station()` has **no equipment at all** — zero rows in `products`, `tanks`,
 `pumps`, `nozzles`. Nothing in the app layer can create them either: I checked, and neither admin nor

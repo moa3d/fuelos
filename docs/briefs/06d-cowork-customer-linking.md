@@ -6,6 +6,11 @@ through Claude in Cowork. **Nothing here blocks anything today**: `apps/worker/a
 shows this as a correctly-disabled, honest placeholder ("ربط زبون (اختياري) — فقط إن أراد فاتورة رقمية أو
 نقاطاً · قريباً") instead of pretending it works.
 
+**Status (2026-10-01): done.** Cowork shipped `customers.qr_token` and `lookup_customer_for_sale()` (docs/briefs/06e).
+The customer app has a «بطاقتي» screen with a real scannable QR; the worker app's S2 looks a customer up by
+card code or phone and links any payment method, never blocking the sale offline. Verified end to end in a real
+browser, including the offline case.
+
 ## What's missing
 `sales.customer_id uuid references customers(id)` is already nullable and ready (`supabase/migrations/20260924000100_core.sql`) —
 a fill *can* be tied to a customer, which is what makes a digital invoice (C3/C4) and loyalty points

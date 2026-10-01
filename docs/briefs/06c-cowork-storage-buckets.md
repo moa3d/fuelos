@@ -4,6 +4,12 @@ Written by Claude Code on 2026-09-30. Needs the Supabase connection (Storage buc
 goes through Claude in Cowork. This is CLAUDE.md's own milestone 1 "Next" item, still not started — flagging
 it now since it's the last thing blocking a few already-built, already-disclosed placeholders.
 
+**Status (2026-10-01): done.** Cowork shipped both `meter-photos` and `invoice-pdfs` buckets with their policies
+(docs/briefs/06e). The worker app's `MeterPhotoCard` (S1/S4–S6/move) now uploads for real and never blocks a
+shift online or off; owner-web's O7 approvals links to the signed photo URLs. `invoice-pdfs` still has nothing
+to generate a PDF yet, so «تنزيل PDF» stays disabled on purpose — that part of this brief is unchanged.
+Verified end to end in a real browser against the hosted project.
+
 ## What's already ready, waiting only on the bucket
 The RPC layer was built photo-aware from the start — nothing here needs a schema or RPC change, just a bucket:
 - `invoices.pdf_path text` (nullable) already exists.
