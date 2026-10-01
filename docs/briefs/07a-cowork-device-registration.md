@@ -9,6 +9,10 @@ without a direct API call.
 This is a **description of what the DB already gives this screen, and the one gap I found** — not a request to
 build the screen. I'm not implementing it until you've looked this over.
 
+**Status (2026-10-01): done.** Cowork shipped `station_devices()` (docs/briefs/07b) exposing exactly the derived
+`credential_status` this brief asked for. O11's new «الأجهزة» tab (`apps/owner-web/app/(app)/settings/page.tsx`)
+registers, revokes and re-issues a device; verified end to end in a real browser.
+
 ## What already exists and needs no change
 Everything here is from `supabase/migrations/20260925000100_attendant_pin_login.sql`, already deployed.
 
