@@ -48,7 +48,7 @@ export function SavedSale({ row, unsent, currency, onNew, newLabel = "+ عملي
             <Row label="الكمية" value={`${formatNumber(Number(row.params.p_liters), 2)} لتر`} />
             <Row label="سعر اللتر" value={formatMoney(String(unit), currency)} />
             <Row label="طريقة الدفع" value={METHOD_LABEL[method]} />
-            {method !== "credit" && <Row label="الزبون" value="غير مرتبط" muted />}
+            {method !== "credit" && <Row label="الزبون" value={row.meta?.customer ?? "غير مرتبط"} muted={!row.meta?.customer} />}
           </dl>
           <div className="mt-3 flex items-baseline justify-between border-t border-border-default pt-3">
             <span className="text-heading-h3-16">الإجمالي</span>

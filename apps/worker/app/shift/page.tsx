@@ -137,7 +137,10 @@ export default function QuickFillPage() {
         p_device: device?.deviceId ?? null,
         p_client_created_at: new Date().toISOString(),
       };
-      const meta = { amount: centsToString(recordedCents), product: nozzle.label, pump: String(leg.pumpNumber) };
+      const meta = {
+        amount: centsToString(recordedCents), product: nozzle.label, pump: String(leg.pumpNumber),
+        ...(customer ? { customer: customer.displayName } : {}),
+      };
       try {
         await db.transaction("rw", db.outbox, async () => {
           await assertRoom(me.userId, ref?.offlineMaxOps ?? 50);

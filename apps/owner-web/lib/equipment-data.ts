@@ -8,18 +8,27 @@ const signal = () => AbortSignal.timeout(20_000);
 
 export type TankOption = { id: string; name: string; productName: string };
 export type ProductOption = { code: string; name: string };
+export type PumpRow = { id: string; number: number; name: string | null; nozzles: { label: string; productName: string }[] };
 
-export async function loadTankOptions(stationId: string): Promise<{ tanks: TankOption[]; products: ProductOption[] }> {
+export async function loadTankOptions(stationId: string): Promise<{ tanks: TankOption[]; products: ProductOption[]; pumps: PumpRow[] }> {
   const sb = supabase();
-  const [tanksRes, productsRes] = await Promise.all([
+  const [tanksRes, productsRes, pumpsRes] = await Promise.all([
     sb.from("tanks").select("id, name, product_id").eq("station_id", stationId).eq("is_active", true).abortSignal(signal()),
     sb.from("products").select("id, code, name").eq("station_id", stationId).eq("is_active", true).abortSignal(signal()),
+    sb.from("pumps").select("id, number, name, nozzles(label, tanks(product_id))").eq("station_id", stationId).eq("is_active", true)
+      .order("number").abortSignal(signal()),
   ]);
   if (tanksRes.error) throw new Error(tanksRes.error.message);
   if (productsRes.error) throw new Error(productsRes.error.message);
+  if (pumpsRes.error) throw new Error(pumpsRes.error.message);
   const nameOfId = new Map((productsRes.data ?? []).map((p) => [p.id as string, p.name as string]));
   const tanks = (tanksRes.data ?? []).map((t) => ({ id: t.id, name: t.name, productName: nameOfId.get(t.product_id) ?? "" }));
-  return { tanks, products: (productsRes.data ?? []).map((p) => ({ code: p.code, name: p.name })) };
+  type RawPump = { id: string; number: number; name: string | null; nozzles: { label: string; tanks: { product_id: string } | null }[] };
+  const pumps: PumpRow[] = ((pumpsRes.data ?? []) as unknown as RawPump[]).map((p) => ({
+    id: p.id, number: p.number, name: p.name,
+    nozzles: p.nozzles.map((n) => ({ label: n.label, productName: nameOfId.get(n.tanks?.product_id ?? "") ?? "" })),
+  }));
+  return { tanks, products: (productsRes.data ?? []).map((p) => ({ code: p.code, name: p.name })), pumps };
 }
 
 export type Outcome = { ok: true } | { ok: false; message: string };

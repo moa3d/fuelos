@@ -8,7 +8,7 @@ import { formatDay } from "@fuelos/core";
 import { AlertBanner, Button, cx, Input, StatusBadge } from "@fuelos/ui";
 import { useEffect, useState } from "react";
 import {
-  addPump, addTank, loadTankOptions, type NozzleInput, type ProductOption, type TankOption,
+  addPump, addTank, loadTankOptions, type NozzleInput, type ProductOption, type PumpRow, type TankOption,
 } from "@/lib/equipment-data";
 import {
   changeRole, inviteMember, joinLink, loadSettings, resendInviteLink, setAttendantPin, setMemberStatus,
@@ -196,7 +196,7 @@ function ComingSoon({ text }: { text: string }) {
 
 // ---------- الخزانات والمضخات (docs/briefs/06b/06e): additive only, through setup_station_equipment() ----------
 function EquipmentTab({ stationId, canManage }: { stationId: string; canManage: boolean }) {
-  const [options, setOptions] = useState<{ tanks: TankOption[]; products: ProductOption[] }>();
+  const [options, setOptions] = useState<{ tanks: TankOption[]; products: ProductOption[]; pumps: PumpRow[] }>();
   const [tick, setTick] = useState(0);
   const [modal, setModal] = useState<"tank" | "pump">();
 
@@ -214,17 +214,39 @@ function EquipmentTab({ stationId, canManage }: { stationId: string; canManage: 
           <Button variant="action" size="md" disabled={!canManage || options.tanks.length === 0} title={!canManage ? "إضافة معدات متاحة لصاحب المحطة فقط" : options.tanks.length === 0 ? "أضف خزاناً أولاً" : undefined} onClick={() => setModal("pump")}>+ إضافة مضخة</Button>
         </div>
       </div>
-      {options.tanks.length === 0 ? (
-        <p className="text-body-regular-14 text-text-secondary">لا توجد خزانات بعد — ابدأ بإضافة خزان، ثم أضف مضخة تسحب منه.</p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-border-default">
-          {options.tanks.map((t) => (
-            <li key={t.id} className="flex items-center justify-between py-2 text-body-regular-14">
-              <span>{t.name}</span><span className="text-text-secondary">{t.productName}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div>
+          <h3 className="mb-2 text-heading-h3-16">الخزانات ({options.tanks.length})</h3>
+          {options.tanks.length === 0 ? (
+            <p className="text-body-regular-14 text-text-secondary">لا توجد خزانات بعد.</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border-default">
+              {options.tanks.map((t) => (
+                <li key={t.id} className="flex items-center justify-between py-2 text-body-regular-14">
+                  <span>{t.name}</span><span className="text-text-secondary">{t.productName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3 className="mb-2 text-heading-h3-16">المضخات ({options.pumps.length})</h3>
+          {options.pumps.length === 0 ? (
+            <p className="text-body-regular-14 text-text-secondary">لا توجد مضخات بعد.</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border-default">
+              {options.pumps.map((p) => (
+                <li key={p.id} className="flex flex-col py-2 text-body-regular-14">
+                  <span>{p.name ?? `مضخة ${p.number}`}</span>
+                  <span className="text-body-small-12 text-text-secondary">
+                    {p.nozzles.map((n) => `${n.label} · ${n.productName}`).join(" — ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
       <p className="text-body-small-12 text-text-secondary">التعديل التفصيلي (السعة، الحد الأدنى) من صفحة «الخزانات والمخزون».</p>
 
       {modal === "tank" && <TankModal stationId={stationId} products={options.products} onClose={() => setModal(undefined)} onDone={() => { setModal(undefined); refresh(); }} />}
