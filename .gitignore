@@ -11,6 +11,9 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# scratch (ad-hoc Playwright/manual-test scripts, device secrets, screenshots — never checked in)
+.pw-scratch/
+
 # flutter / dart
 .dart_tool/
 build/
