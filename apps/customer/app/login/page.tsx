@@ -1,8 +1,8 @@
 "use client";
-// L3 — دخول الزبون (design/screens/L3.png). The design shows a phone SMS code; this build uses EMAIL OTP
-// instead — phone OTP needs an SMS provider configured in the Supabase project (a Cowork/dashboard step),
-// which isn't set up yet. Unlike office login (L1, invite-only), a customer may not have an account yet:
-// signInWithOtp() here is allowed to create one (no `shouldCreateUser: false`).
+// L3 — دخول الزبون (design/screens/L3.png showed a phone SMS code; email OTP replaced that, and email OTP is
+// now replaced by this — email + password, two tabs «دخول» / «حساب جديد» — owner's decision 2026-10-03, since
+// OTP email delivery stayed unreliable with no SMTP provider configured, docs/briefs/04d). «نسيت كلمة المرور»
+// is intentionally not here yet — a later addition.
 import { AUTH_NETWORK_MESSAGE, authErrorMessage } from "@fuelos/core";
 import { AlertBanner, Button, Input } from "@fuelos/ui";
 import Link from "next/link";
@@ -11,19 +11,27 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { customerAccess, ensureCustomerRow } from "@/lib/customer-access";
 import { supabase } from "@/lib/supabase";
 
-type Mode = "request" | "verify";
-const RESEND_SECONDS = 60;
+type Tab = "signin" | "signup";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD = 8;
+
+// authErrorMessage's shared "signup_disabled" wording is written for the invite-only office apps ("اطلب من
+// صاحب المحطة دعوتك") — wrong here, where self sign-up is the whole point. "user_already_exists" isn't in the
+// shared map at all yet (only this screen can hit it).
+const SIGNUP_LOCAL: Record<string, string> = {
+  signup_disabled: "إنشاء الحسابات غير متاح حالياً — تواصل مع فريق FuelOS",
+  user_already_exists: "هذا البريد مسجَّل مسبقاً — سجّل الدخول بدلاً من ذلك",
+};
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("request");
+  const [tab, setTab] = useState<Tab>("signin");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [resendAt, setResendAt] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
+  const [info, setInfo] = useState<string>();
   const inFlight = useRef(false);
 
   // already signed in → straight to the home screen
@@ -31,20 +39,27 @@ export default function LoginPage() {
     customerAccess().then((a) => { if (a.kind === "customer") router.replace("/"); });
   }, [router]);
 
-  useEffect(() => {
-    if (resendAt <= now) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [resendAt, now]);
-
   const emailValid = EMAIL_RE.test(email.trim());
   const emailError = email.trim() !== "" && !emailValid ? "أدخل بريداً إلكترونياً صحيحاً" : undefined;
+  const passwordError = tab === "signup" && password !== "" && password.length < MIN_PASSWORD
+    ? `كلمة المرور يجب أن تكون ${MIN_PASSWORD} أحرف على الأقل` : undefined;
+  const confirmError = tab === "signup" && confirm !== "" && confirm !== password ? "كلمتا المرور غير متطابقتين" : undefined;
+  const signupReady = emailValid && password.length >= MIN_PASSWORD && password === confirm;
+
+  function switchTab(next: Tab) {
+    setTab(next);
+    setError(undefined);
+    setInfo(undefined);
+    setPassword("");
+    setConfirm("");
+  }
 
   async function once(fn: () => Promise<void>) {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setError(undefined);
+    setInfo(undefined);
     try {
       await fn();
     } catch {
@@ -55,31 +70,35 @@ export default function LoginPage() {
     }
   }
 
-  const requestCode = (e?: FormEvent) => {
-    e?.preventDefault();
-    if (!emailValid) return;
-    void once(async () => {
-      const { error: err } = await supabase().auth.signInWithOtp({ email: email.trim().toLowerCase() });
-      if (err) return setError(authErrorMessage(err));
-      setResendAt(Date.now() + RESEND_SECONDS * 1000);
-      setNow(Date.now());
-      setMode("verify");
-    });
-  };
-
-  const verifyCode = (e: FormEvent) => {
+  const signIn = (e: FormEvent) => {
     e.preventDefault();
-    const token = code.replace(/\D/g, "");
-    if (token.length < 6) return;
+    if (!emailValid || !password) return;
     void once(async () => {
-      const { data, error: err } = await supabase().auth.verifyOtp({ email: email.trim().toLowerCase(), token, type: "email" });
+      const { data, error: err } = await supabase().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
       if (err) return setError(authErrorMessage(err));
       if (data.user) await ensureCustomerRow(data.user.id);
       router.replace("/");
     });
   };
 
-  const secondsLeft = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const signUp = (e: FormEvent) => {
+    e.preventDefault();
+    if (!signupReady) return;
+    void once(async () => {
+      const { data, error: err } = await supabase().auth.signUp({ email: email.trim().toLowerCase(), password });
+      if (err) return setError(SIGNUP_LOCAL[err.code ?? ""] ?? authErrorMessage(err));
+      // Supabase answers an email that's already fully registered with a "success" carrying no identities,
+      // rather than an error — the only way to tell it apart from a genuinely new account.
+      if (data.user && data.user.identities?.length === 0) return setError(SIGNUP_LOCAL.user_already_exists);
+      if (!data.session) {
+        // the project requires confirming the email before a session is issued
+        setInfo("أنشأنا حسابك — افتح رسالة التأكيد في بريدك لتفعيله، ثم سجّل الدخول.");
+        return;
+      }
+      if (data.user) await ensureCustomerRow(data.user.id);
+      router.replace("/");
+    });
+  };
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col justify-between p-6">
@@ -93,39 +112,44 @@ export default function LoginPage() {
           <span className="text-heading-h2-20">FuelOS</span>
         </div>
 
-        <h1 className="mt-6 text-display-32">{mode === "request" ? "تسجيل الدخول" : "أدخل رمز التحقق"}</h1>
-        <p className="mt-1 text-body-regular-14 text-text-secondary">
-          {mode === "request" ? "أدخل بريدك الإلكتروني لنرسل لك رمز تحقق" : `أرسلنا رمزاً من 6 أرقام إلى ${email}`}
-        </p>
+        <h1 className="mt-6 text-display-32">{tab === "signin" ? "تسجيل الدخول" : "حساب جديد"}</h1>
+
+        <div role="tablist" aria-label="الدخول أو إنشاء حساب" className="mt-6 flex overflow-hidden rounded-full border border-border-default">
+          <button type="button" role="tab" aria-selected={tab === "signin"} onClick={() => switchTab("signin")}
+            className={`h-10 flex-1 text-body-strong-14 ${tab === "signin" ? "bg-brand-primary text-white" : "bg-surface-card text-text-secondary"}`}>
+            دخول
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "signup"} onClick={() => switchTab("signup")}
+            className={`h-10 flex-1 text-body-strong-14 ${tab === "signup" ? "bg-brand-primary text-white" : "bg-surface-card text-text-secondary"}`}>
+            حساب جديد
+          </button>
+        </div>
 
         {error && <AlertBanner tone="danger" className="mt-4" title={error} />}
+        {info && <AlertBanner tone="success" className="mt-4" title={info} />}
 
-        {mode === "request" && (
-          <form onSubmit={requestCode} className="mt-6 flex flex-col gap-4" noValidate>
+        {tab === "signin" ? (
+          <form onSubmit={signIn} className="mt-6 flex flex-col gap-4" noValidate>
             <Input label="البريد الإلكتروني" dir="ltr" autoComplete="email" inputMode="email"
               value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} placeholder="you@example.com" />
-            <Button type="submit" variant="action" size="lg" block disabled={!emailValid || busy}>
-              {busy ? "جارٍ الإرسال…" : "تأكيد"}
+            <Input label="كلمة المرور" type="password" dir="ltr" autoComplete="current-password"
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Button type="submit" variant="action" size="lg" block disabled={!emailValid || !password || busy}>
+              {busy ? "جارٍ الدخول…" : "دخول"}
             </Button>
           </form>
-        )}
-
-        {mode === "verify" && (
-          <form onSubmit={verifyCode} className="mt-6 flex flex-col gap-4" noValidate>
-            <Input label="الرمز" size="lg" dir="ltr" inputMode="numeric" autoComplete="one-time-code" maxLength={8}
-              value={code} onChange={(e) => setCode(e.target.value)} placeholder="••••••" />
-            <Button type="submit" variant="action" size="lg" block disabled={code.replace(/\D/g, "").length < 6 || busy}>
-              {busy ? "جارٍ التحقق…" : "تأكيد"}
+        ) : (
+          <form onSubmit={signUp} className="mt-6 flex flex-col gap-4" noValidate>
+            <Input label="البريد الإلكتروني" dir="ltr" autoComplete="email" inputMode="email"
+              value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} placeholder="you@example.com" />
+            <Input label="كلمة المرور" type="password" dir="ltr" autoComplete="new-password"
+              value={password} onChange={(e) => setPassword(e.target.value)} error={passwordError}
+              helper={passwordError ? undefined : `${MIN_PASSWORD} أحرف على الأقل`} />
+            <Input label="تأكيد كلمة المرور" type="password" dir="ltr" autoComplete="new-password"
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} error={confirmError} />
+            <Button type="submit" variant="action" size="lg" block disabled={!signupReady || busy}>
+              {busy ? "جارٍ الإنشاء…" : "إنشاء الحساب"}
             </Button>
-            <div className="flex items-center justify-between text-body-regular-14">
-              <button type="button" onClick={() => { setMode("request"); setCode(""); setError(undefined); }} className="text-text-secondary">
-                تغيير البريد
-              </button>
-              <button type="button" disabled={secondsLeft > 0 || busy} onClick={() => requestCode()}
-                className={secondsLeft > 0 ? "text-text-muted" : "text-body-strong-14 text-brand-primary"}>
-                {secondsLeft > 0 ? `إعادة الإرسال بعد ${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}` : "إعادة إرسال الرمز"}
-              </button>
-            </div>
           </form>
         )}
 
