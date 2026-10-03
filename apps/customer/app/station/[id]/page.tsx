@@ -10,6 +10,7 @@ import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BottomNav } from "@/components/BottomNav";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 import { loadStationDetail } from "@/lib/prices-data";
 import { availabilityBadge, mapUrl, type Station } from "@/lib/prices-rules";
@@ -38,10 +39,10 @@ export default function StationDetailPage() {
   }, [params.id]);
 
   const signedIn = access?.kind === "customer";
-  const reportHref = signedIn ? "/rewards?tab=complaints" : "/login";
+  const reportHref = signedIn ? "/complaints" : "/login";
 
   return (
-    <div className="mx-auto flex max-w-[480px] flex-col gap-4 p-4 pb-10">
+    <div className={`mx-auto flex max-w-[480px] flex-col gap-4 p-4 ${signedIn ? "pb-24" : "pb-10"}`}>
       <button type="button" onClick={() => router.back()} className="self-start text-body-strong-14 text-text-secondary">→ رجوع</button>
 
       {load.status === "loading" && <span aria-busy className="block h-72 animate-pulse rounded-lg bg-surface-muted" />}
@@ -88,6 +89,8 @@ export default function StationDetailPage() {
           </section>
         </>
       )}
+
+      {signedIn && <BottomNav />}
     </div>
   );
 }

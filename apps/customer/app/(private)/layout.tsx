@@ -2,6 +2,7 @@
 // Everything behind sign-in (C3 onward): checks the session, then provides CustomerContext.
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BottomNav } from "@/components/BottomNav";
 import { customerAccess } from "@/lib/customer-access";
 import { supabase } from "@/lib/supabase";
 import { CustomerContext } from "./customer-context";
@@ -30,5 +31,10 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   if (state.status === "error") {
     return <p className="mx-auto max-w-[480px] p-4 text-center text-body-regular-14 text-text-secondary">تعذّر التحقق من حسابك — أعد فتح الصفحة.</p>;
   }
-  return <CustomerContext.Provider value={{ userId: state.userId, name: state.name }}>{children}</CustomerContext.Provider>;
+  return (
+    <CustomerContext.Provider value={{ userId: state.userId, name: state.name }}>
+      <div className="pb-24">{children}</div>
+      <BottomNav />
+    </CustomerContext.Provider>
+  );
 }
