@@ -4,14 +4,16 @@
 import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
 import { AlertBanner, Button, cx, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MeterPhotos, type DisplayShot } from "@/components/MeterPhotos";
 import {
   canDecide, closeChoices, decisionSupported, defaultChoice, noteHint, noteRequired, whoCanDecide,
   type ApprovalType, type Choice,
 } from "@/lib/approval-rules";
 import {
-  decide, loadApprovals, loadLegPhotos, reopenShift, type ApprovalsData, type CloseSnapshot, type LegPhotos, type Request,
+  decide, loadApprovals, reopenShift, type ApprovalsData, type CloseSnapshot, type Request,
 } from "@/lib/approvals";
 import { cents, centsStr } from "@/lib/dashboard";
+import { loadShiftPhotos, signPaths, type ShiftPhotos } from "@/lib/photos-data";
 import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
 
@@ -396,10 +398,43 @@ function ReopenRetry({ shiftId, reason, onDone }: { shiftId: string; reason: str
 }
 
 // ---------- bodies per type ----------
+type PhotosLoad = { status: "loading" } | { status: "error" } | ShiftPhotos & { status: "ready" };
+
 function CloseBody({ r, snap, money, diff }: { r: Request; snap: CloseSnapshot; money: (c: bigint) => string; diff: bigint }) {
   const stat = (label: string, value: string) => (
     <div className="rounded-md bg-surface-muted p-3"><p className="text-body-small-12 text-text-secondary">{label}</p><p className="text-number-m-18">{value}</p></div>
   );
+
+  const legIds = useMemo(() => (snap.legs ?? []).map((l) => l.leg_id).filter((x): x is string => !!x), [snap.legs]);
+  const [photos, setPhotos] = useState<PhotosLoad>({ status: "loading" });
+  const retried = useRef(new Set<string>());
+
+  // No need to reset to "loading" here: Detail renders this with key={selected.id} (see ApprovalsPage), so
+  // CloseBody remounts fresh — with its own initial "loading" state — whenever the selected request changes.
+  useEffect(() => {
+    let alive = true;
+    loadShiftPhotos(legIds).then(
+      ({ shots, urls }) => { if (alive) setPhotos({ status: "ready", shots, urls }); },
+      () => { if (alive) setPhotos({ status: "error" }); },
+    );
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when the request itself changes, not on every legIds array identity
+  }, [r.id]);
+
+  async function retryUrl(path: string) {
+    if (retried.current.has(path)) return; // ask for a fresh link once per path, never loop on a second failure
+    retried.current.add(path);
+    const fresh = await signPaths([path]).catch(() => new Map<string, string>());
+    const url = fresh.get(path);
+    if (!url) return;
+    setPhotos((prev) => (prev.status === "ready" ? { ...prev, urls: new Map(prev.urls).set(path, url) } : prev));
+  }
+
+  function shotsFor(legId: string): DisplayShot[] {
+    if (photos.status !== "ready") return [];
+    return photos.shots.filter((s) => s.legId === legId).map((s) => ({ ...s, url: photos.urls.get(s.path) }));
+  }
+
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -429,7 +464,11 @@ function CloseBody({ r, snap, money, diff }: { r: Request; snap: CloseSnapshot; 
                   </div>
                   <div className="text-end"><p className="font-semibold">{formatNumber(Number(l.liters), 1)} لتر</p><p className="text-body-small-12 text-text-secondary">{money(cents(l.amount))}</p></div>
                 </div>
-                {l.leg_id && <LegPhotoLinks legId={l.leg_id} />}
+                {l.leg_id && (
+                  photos.status === "loading" ? <span className="block h-24 w-24 animate-pulse rounded-md bg-surface-muted" /> :
+                  photos.status === "error" ? <p className="text-body-small-12 text-status-danger-700">تعذّر تحميل الصور</p> :
+                  <MeterPhotos pumpNumber={l.pump_number} shots={shotsFor(l.leg_id)} onRetry={retryUrl} />
+                )}
               </li>
             ))}
           </ul>
@@ -443,28 +482,6 @@ function CloseBody({ r, snap, money, diff }: { r: Request; snap: CloseSnapshot; 
           <p className="text-body-regular-14 text-text-secondary">{diff !== 0n ? "لم يكتب العامل سبباً." : "لم يكتب العامل ملاحظة."}</p>
         )}
       </section>
-    </div>
-  );
-}
-
-/** Lazy per-leg fetch: only the legs of the currently-open request ever get queried. */
-function LegPhotoLinks({ legId }: { legId: string }) {
-  const [photos, setPhotos] = useState<LegPhotos | "loading" | "error">("loading");
-
-  useEffect(() => {
-    let alive = true;
-    loadLegPhotos(legId).then((p) => { if (alive) setPhotos(p); }, () => { if (alive) setPhotos("error"); });
-    return () => { alive = false; };
-  }, [legId]);
-
-  if (photos === "loading") return null;
-  if (photos === "error" || (!photos.openingUrl && !photos.closingUrl)) {
-    return <p className="text-body-small-12 text-text-muted">لا صور عداد لهذه المضخة.</p>;
-  }
-  return (
-    <div className="flex gap-2">
-      {photos.openingUrl && <a href={photos.openingUrl} target="_blank" rel="noreferrer" className="text-body-small-12 text-brand-primary">📷 صورة الافتتاح</a>}
-      {photos.closingUrl && <a href={photos.closingUrl} target="_blank" rel="noreferrer" className="text-body-small-12 text-brand-primary">📷 صورة الإغلاق</a>}
     </div>
   );
 }

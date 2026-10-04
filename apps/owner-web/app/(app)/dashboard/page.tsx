@@ -1,12 +1,15 @@
 "use client";
 // O1 — لوحة القيادة (design/screens/O1.png). Most critical first: alerts, then KPIs, then detail.
 // Amounts come from the server (shift_summary, tank_book_levels, approvals, ledger); see lib/dashboard.ts.
-import { formatMoney, formatNumber, formatTime } from "@fuelos/core";
+import { formatDay, formatMoney, formatNumber, formatTime } from "@fuelos/core";
 import { AlertBanner, Button, cx, StatusBadge, type BadgeTone } from "@fuelos/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MeterPhotos, type DisplayShot } from "@/components/MeterPhotos";
 import {
   cents, centsStr, loadDashboard, type Approval, type DashboardData, type Period, type ShiftRow, type TankRow,
 } from "@/lib/dashboard";
+import { loadShiftPhotos, signPaths, type ShiftPhotos } from "@/lib/photos-data";
+import { loadRecentShifts, type RecentShift } from "@/lib/recent-shifts-data";
 import { useOffice } from "../office-context";
 import { DailyChart } from "./daily-chart";
 
@@ -96,6 +99,8 @@ export default function DashboardPage() {
             <RecentOps approvals={load.data.approvals} money={money} />
             <Shifts shifts={load.data.shifts} total={load.data.shiftsCount} money={money} />
           </div>
+
+          <RecentShiftsSection key={current.stationId} stationId={current.stationId} money={money} />
         </>
       )}
     </div>
@@ -332,6 +337,170 @@ function Shifts({ shifts, total, money }: { shifts: ShiftRow[]; total: number; m
         <p className="mt-2 text-body-small-12 text-text-secondary">أحدث {shifts.length} من {total} مناوبة في هذه الفترة</p>
       )}
     </section>
+  );
+}
+
+// ---------- آخر المناوبات: every status, independent of the period filter above, paginated 10 at a time ----------
+type RecentLoad = { status: "loading" } | { status: "error" } | { status: "ready"; shifts: RecentShift[]; hasMore: boolean; fetchedAt: string };
+
+function RecentShiftsSection({ stationId, money }: { stationId: string; money: (v: bigint) => string }) {
+  const [load, setLoad] = useState<RecentLoad>({ status: "loading" });
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // No synchronous setLoad(loading) here: the parent renders this with key={stationId} (see DashboardPage), so
+  // a station switch remounts this section fresh with its own initial "loading" state instead.
+  useEffect(() => {
+    let alive = true;
+    loadRecentShifts(stationId, 0).then(
+      ({ shifts, hasMore, fetchedAt }) => { if (alive) setLoad({ status: "ready", shifts, hasMore, fetchedAt }); },
+      () => { if (alive) setLoad({ status: "error" }); },
+    );
+    return () => { alive = false; };
+  }, [stationId]);
+
+  function retry() {
+    setLoad({ status: "loading" });
+    loadRecentShifts(stationId, 0).then(
+      ({ shifts, hasMore, fetchedAt }) => setLoad({ status: "ready", shifts, hasMore, fetchedAt }),
+      () => setLoad({ status: "error" }),
+    );
+  }
+
+  async function showMore() {
+    if (load.status !== "ready" || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const next = await loadRecentShifts(stationId, load.shifts.length);
+      setLoad((prev) => prev.status === "ready"
+        ? { status: "ready", shifts: [...prev.shifts, ...next.shifts], hasMore: next.hasMore, fetchedAt: next.fetchedAt }
+        : prev);
+    } catch {
+      // the "عرض المزيد" button itself just stays clickable again — the list already shown isn't lost
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg bg-surface-card p-6 shadow-card">
+      <div className="mb-4 flex items-baseline justify-between">
+        <h2 className="text-heading-h2-20">آخر المناوبات</h2>
+        {load.status === "ready" && <span className="text-body-small-12 text-text-secondary">آخر تحديث {formatTime(load.fetchedAt)} · من الخادم</span>}
+      </div>
+
+      {load.status === "loading" && (
+        <div aria-busy className="flex flex-col gap-3">
+          {[0, 1, 2].map((i) => <span key={i} className="h-28 animate-pulse rounded-lg bg-surface-muted" />)}
+        </div>
+      )}
+      {load.status === "error" && (
+        <AlertBanner tone="danger" title="تعذّر تحميل المناوبات" action={<Button variant="secondary" onClick={retry}>إعادة المحاولة</Button>}>
+          تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.
+        </AlertBanner>
+      )}
+      {load.status === "ready" && load.shifts.length === 0 && (
+        <p className="text-body-regular-14 text-text-secondary">لا مناوبات بعد.</p>
+      )}
+      {load.status === "ready" && load.shifts.length > 0 && (
+        <>
+          <ul className="flex flex-col gap-4">
+            {load.shifts.map((s) => <ShiftCard key={s.id} s={s} money={money} />)}
+          </ul>
+          {load.hasMore && (
+            <Button variant="secondary" className="mt-4" disabled={loadingMore} onClick={showMore}>
+              {loadingMore ? "جارٍ التحميل…" : "عرض المزيد"}
+            </Button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Mounts its photo fetch only once the card actually scrolls into view, so opening the dashboard never fires
+ * 10 photo queries at once for a page the owner may not even scroll to. */
+function useInView<T extends Element>(): [React.RefObject<T | null>, boolean] {
+  const ref = useRef<T>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    if (inView || !ref.current) return;
+    const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) setInView(true); }, { rootMargin: "200px" });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [inView]);
+  return [ref, inView];
+}
+
+type PhotosLoad = { status: "loading" } | { status: "error" } | ShiftPhotos & { status: "ready" };
+
+function ShiftCard({ s, money }: { s: RecentShift; money: (v: bigint) => string }) {
+  const [ref, inView] = useInView<HTMLLIElement>();
+  const [photos, setPhotos] = useState<PhotosLoad>({ status: "loading" });
+  const retried = useRef(new Set<string>());
+  const [tone, label] = SHIFT_STATUS[s.status];
+  const showNumbers = s.status === "submitted" || s.status === "approved";
+
+  useEffect(() => {
+    if (!inView) return;
+    let alive = true;
+    loadShiftPhotos(s.legs.map((l) => l.legId)).then(
+      (p) => { if (alive) setPhotos({ status: "ready", ...p }); },
+      () => { if (alive) setPhotos({ status: "error" }); },
+    );
+    return () => { alive = false; };
+  }, [inView, s.legs]);
+
+  async function retryUrl(path: string) {
+    if (retried.current.has(path)) return;
+    retried.current.add(path);
+    const fresh = await signPaths([path]).catch(() => new Map<string, string>());
+    const url = fresh.get(path);
+    if (!url) return;
+    setPhotos((prev) => (prev.status === "ready" ? { ...prev, urls: new Map(prev.urls).set(path, url) } : prev));
+  }
+
+  function shotsFor(legId: string): DisplayShot[] {
+    if (photos.status !== "ready") return [];
+    return photos.shots.filter((sh) => sh.legId === legId).map((sh) => ({ ...sh, url: photos.urls.get(sh.path) }));
+  }
+
+  return (
+    <li ref={ref} className="rounded-md border border-border-default p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-body-strong-14">{s.attendantName}</p>
+          <p className="text-body-small-12 text-text-secondary">
+            {formatDay(s.openedAt)} · {formatTime(s.openedAt)}{s.closedAt ? ` – ${formatTime(s.closedAt)}` : ""}
+          </p>
+        </div>
+        <StatusBadge tone={tone}>{label}</StatusBadge>
+      </div>
+
+      {showNumbers && (s.litersL !== null || s.amountCents !== null) && (
+        <p className="mt-2 text-body-small-12 text-text-secondary">
+          {s.litersL !== null && `${formatNumber(s.litersL, 1)} لتر`}
+          {s.litersL !== null && s.amountCents !== null && " · "}
+          {s.amountCents !== null && money(s.amountCents)}
+        </p>
+      )}
+
+      {s.legs.length > 0 && (
+        <div className="mt-3 flex flex-col gap-3">
+          {inView ? (
+            photos.status === "loading" ? <span className="block h-24 w-24 animate-pulse rounded-md bg-surface-muted" /> :
+            photos.status === "error" ? <p className="text-body-small-12 text-status-danger-700">تعذّر تحميل الصور</p> :
+            s.legs.map((l) => (
+              <div key={l.legId}>
+                <p className="mb-1 text-label-11 text-text-secondary">مضخة {l.pumpNumber}</p>
+                <MeterPhotos pumpNumber={l.pumpNumber} shots={shotsFor(l.legId)} onRetry={retryUrl} />
+              </div>
+            ))
+          ) : (
+            <span className="block h-6 w-32 rounded-md bg-surface-muted" />
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
