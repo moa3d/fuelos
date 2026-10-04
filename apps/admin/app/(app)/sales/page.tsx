@@ -15,7 +15,7 @@ import {
 } from "@/lib/sales-rules";
 import { matchesSearch, stationBadge, type StationStatus } from "@/lib/stations-rules";
 
-type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: PlatformSales };
+type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: PlatformSales };
 const PRESETS: PeriodPreset[] = ["today", "last7", "thisMonth", "lastMonth", "custom"];
 const STATUS_FILTERS: ("all" | StationStatus)[] = ["all", "active", "setup", "suspended"];
 const CURRENCY = "ل.س"; // platform-wide report; stations may differ, but this is an ops summary, not a per-station ledger
@@ -46,7 +46,7 @@ export default function PlatformSalesPage() {
     let alive = true;
     loadPlatformSales(range.from, range.to).then(
       (data) => { if (alive) setLoad({ status: "ready", data }); },
-      () => { if (alive) setLoad({ status: "error" }); },
+      (e) => { if (alive) setLoad({ status: "error", message: e instanceof Error ? e.message : "تعذّر تحميل المبيعات" }); },
     );
     return () => { alive = false; };
   }, [range.from, range.to, tick]);
@@ -140,8 +140,10 @@ export default function PlatformSalesPage() {
 
       {load.status === "loading" && <Skeleton />}
       {load.status === "error" && (
-        <AlertBanner tone="danger" title="تعذّر تحميل المبيعات" action={<Button variant="secondary" onClick={refresh}>إعادة المحاولة</Button>}>
-          تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى. إن تكرر الخطأ، راجع ما إذا كانت دالة platform_sales_summary متاحة بعد.
+        <AlertBanner tone="danger" title={load.message} action={<Button variant="secondary" onClick={refresh}>إعادة المحاولة</Button>}>
+          {load.message === "تعذّر تحميل المبيعات"
+            ? "تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى. إن تكرر الخطأ، راجع ما إذا كانت دالة platform_sales_summary متاحة بعد."
+            : "عدّل الفترة أعلاه ثم حاول مرة أخرى."}
         </AlertBanner>
       )}
 

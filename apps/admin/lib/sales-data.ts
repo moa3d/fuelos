@@ -45,11 +45,15 @@ function toTotals(t: RawTotals): SalesTotals {
 
 export type PlatformSales = { rows: SalesRow[]; totals: SalesTotals; fetchedAt: string };
 
+// platform_sales_summary's own FUELOS_BAD_REQUEST is always the same cause (an invalid or too-long period) —
+// Cowork's suggested wording, not the generic "تحقّق من البيانات" the shared map would give it.
+const LOCAL: Record<string, string> = { FUELOS_BAD_REQUEST: "اختر فترة صحيحة (حتى 13 شهراً)" };
+
 export async function loadPlatformSales(from: string, to: string): Promise<PlatformSales> {
   const { data, error } = await supabase().rpc("platform_sales_summary", { p_from: from, p_to: to }).abortSignal(signal());
   if (error) {
     const code = error.message?.startsWith("FUELOS_") ? error.message.trim() : error.code === "42501" ? "FUELOS_PERMISSION_DENIED" : undefined;
-    throw new Error(code ? errorMessage(code) : "تعذّر تحميل المبيعات");
+    throw new Error((code && LOCAL[code]) || (code ? errorMessage(code) : "تعذّر تحميل المبيعات"));
   }
   const r = data as RawResponse;
   return { rows: (r.rows ?? []).map(toRow), totals: toTotals(r.totals), fetchedAt: new Date().toISOString() };
