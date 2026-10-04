@@ -8,6 +8,7 @@ import { formatMoney } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AdBanner } from "@/components/AdBanner";
 import { BottomNav } from "@/components/BottomNav";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 import { loadPrices, type PricesData } from "@/lib/prices-data";
@@ -49,6 +50,8 @@ export default function HomePage() {
 
   return (
     <div className={`mx-auto flex max-w-[480px] flex-col gap-6 p-4 ${signedIn ? "pb-24" : "pb-10"}`}>
+      <AdBanner />
+
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-heading-h1-24">{signedIn ? `مرحباً${access.name ? "، " + access.name : ""}` : "أسعار المحطات"}</h1>

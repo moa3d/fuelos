@@ -13,6 +13,7 @@ const NAV: { href: string; label: string; ready: boolean }[] = [
   { href: "/stations", label: "المحطات", ready: true },
   { href: "/stations/new", label: "انضمام محطة", ready: true },
   { href: "/sales", label: "مبيعات المحطات", ready: true },
+  { href: "/ads", label: "الإعلانات", ready: true },
   { href: "/subscriptions", label: "الاشتراكات والباقات", ready: true },
   { href: "/support", label: "تذاكر الدعم", ready: true },
   { href: "/audit", label: "الصلاحيات والسجلات", ready: true },
