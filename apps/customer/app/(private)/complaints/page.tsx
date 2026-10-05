@@ -185,25 +185,37 @@ function NewComplaintModal({ onClose, onDone }: { onClose: () => void; onDone: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="شكوى جديدة">
-      <div className="w-full max-w-md rounded-lg bg-surface-card p-6 shadow-raised">
+      <div className="w-full max-w-md rounded-[24px] bg-surface-card p-5 shadow-raised">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-heading-h2-20">شكوى جديدة</h2>
-          <button type="button" onClick={onClose} aria-label="إغلاق" className="flex size-8 items-center justify-center rounded-md text-text-secondary hover:bg-surface-muted">✕</button>
+          <button type="button" onClick={onClose} aria-label="إغلاق"
+            className={cx("flex size-11 items-center justify-center rounded-full bg-surface-muted text-text-primary transition-colors motion-reduce:transition-none hover:bg-border-default", FOCUS)}>✕</button>
         </div>
         <div className="flex flex-col gap-4">
           {error && <AlertBanner tone="danger" title={error} />}
-          <div className="flex flex-col gap-1">
-            <label className="text-label-12 text-text-secondary">المحطة</label>
-            <select value={stationId} onChange={(e) => setStationId(e.target.value)} className="h-11 rounded-md border border-border-strong bg-surface-card px-3 text-body-large-16">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="complaint-station" className="text-label-12 text-text-secondary">المحطة</label>
+            <select id="complaint-station" value={stationId} onChange={(e) => setStationId(e.target.value)}
+              className={cx("h-11 rounded-[10px] border border-border-strong bg-surface-card px-3 text-body-large-16 text-text-primary", FOCUS)}>
               {stations?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setKind("complaint")} className={`h-10 flex-1 rounded-md border text-body-strong-14 ${kind === "complaint" ? "border-brand-primary bg-brand-primary text-white" : "border-border-default"}`}>شكوى</button>
-            <button type="button" onClick={() => setKind("price_report")} className={`h-10 flex-1 rounded-md border text-body-strong-14 ${kind === "price_report" ? "border-brand-primary bg-brand-primary text-white" : "border-border-default"}`}>بلاغ سعر</button>
+          <div role="group" aria-label="نوع البلاغ" className="flex gap-1 rounded-[12px] bg-surface-muted p-1">
+            <button type="button" aria-pressed={kind === "complaint"} onClick={() => setKind("complaint")}
+              className={cx("h-11 flex-1 rounded-[10px] text-body-strong-14 transition-colors motion-reduce:transition-none", FOCUS, kind === "complaint" ? "bg-brand-primary text-white" : "text-text-secondary")}>شكوى</button>
+            <button type="button" aria-pressed={kind === "price_report"} onClick={() => setKind("price_report")}
+              className={cx("h-11 flex-1 rounded-[10px] text-body-strong-14 transition-colors motion-reduce:transition-none", FOCUS, kind === "price_report" ? "bg-brand-primary text-white" : "text-text-secondary")}>بلاغ سعر</button>
           </div>
-          <TextArea label="صف المشكلة" value={subject} onChange={(e) => setSubject(e.target.value)} />
-          <Button variant="action" size="lg" block disabled={busy || !subject.trim() || !stationId} onClick={send}>{busy ? "جارٍ الإرسال…" : "إرسال"}</Button>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="complaint-subject" className="text-label-12 text-text-secondary">صف المشكلة</label>
+            <textarea id="complaint-subject" value={subject} onChange={(e) => setSubject(e.target.value)}
+              className="h-[148px] resize-none rounded-[12px] border-2 border-border-strong bg-surface-card p-3.5 text-body-large-16 text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary" />
+          </div>
+          <Button variant="primary" size="lg" block disabled={busy || !subject.trim() || !stationId} onClick={send}
+            className="gap-2">
+            <Icon name="send" size={18} />
+            {busy ? "جارٍ الإرسال…" : "إرسال"}
+          </Button>
         </div>
       </div>
     </div>
