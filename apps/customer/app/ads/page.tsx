@@ -2,16 +2,20 @@
 // «الإعلانات» — docs/briefs/10a; spec §5. Public like C1/C2 (active_ads() is anon-accessible): every running
 // ad, stacked, each with its image, title and «إعلان · sponsor». A failed load just shows an empty state,
 // never an error — the same ads never block anything philosophy as the home banner.
-import { AlertBanner } from "@fuelos/ui";
+import { AlertBanner, cx } from "@fuelos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BottomNav } from "@/components/BottomNav";
+import { Icon } from "@/components/Icon";
+import { PageHeader } from "@/components/PageHeader";
 import { useAdImpression } from "@/components/useAdImpression";
 import { adImageUrl, getViewerKey, loadActiveAds, recordAdEvent, type ActiveAd } from "@/lib/ads-data";
 import { adCaption, isClickable } from "@/lib/ads-rules";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 
 type Load = { status: "loading" } | { status: "ready"; ads: ActiveAd[] };
+
+const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary";
 
 export default function AdsPage() {
   const router = useRouter();
@@ -25,15 +29,11 @@ export default function AdsPage() {
 
   return (
     <div className={`mx-auto flex max-w-[480px] flex-col gap-4 p-4 ${signedIn ? "pb-24" : "pb-10"}`}>
-      <button type="button" onClick={() => router.back()} className="self-start text-body-strong-14 text-text-secondary">→ رجوع</button>
-
-      <header>
-        <h1 className="text-heading-h1-24">الإعلانات</h1>
-      </header>
+      <PageHeader title="الإعلانات" back={{ label: "رجوع", onBack: () => router.back() }} />
 
       {load.status === "loading" && (
         <div aria-busy className="flex flex-col gap-4">
-          {[0, 1].map((i) => <span key={i} className="aspect-video w-full animate-pulse rounded-lg bg-surface-muted" />)}
+          {[0, 1].map((i) => <span key={i} className="aspect-video w-full motion-safe:animate-pulse rounded-[18px] bg-surface-muted" />)}
         </div>
       )}
 
@@ -66,16 +66,27 @@ function AdCard({ ad }: { ad: ActiveAd }) {
   const content = (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage public URL */}
-      <img src={adImageUrl(ad.imagePath)} alt={ad.title} loading="lazy" className="aspect-video w-full rounded-lg object-cover" />
-      <p className="mt-2 text-body-strong-14">{ad.title}</p>
-      <p className="text-body-small-12 text-text-secondary">{adCaption(ad.sponsorName)}</p>
+      <img src={adImageUrl(ad.imagePath)} alt={ad.title} loading="lazy" className="aspect-video w-full rounded-[18px] object-cover" />
+      <div className="mt-2.5 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-body-strong-14">{ad.title}</p>
+          <p className="text-body-small-12 text-text-secondary">{adCaption(ad.sponsorName)}</p>
+        </div>
+        {clickable && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-label-12 text-brand-primary">
+            زيارة
+            <Icon name="external" size={14} />
+          </span>
+        )}
+      </div>
     </>
   );
 
   return (
-    <li ref={ref} className="rounded-lg bg-surface-card p-3 shadow-card">
+    <li ref={ref}>
       {clickable ? (
-        <a href={ad.linkUrl!} target="_blank" rel="noopener noreferrer sponsored" onClick={onClick}>{content}</a>
+        <a href={ad.linkUrl!} target="_blank" rel="noopener noreferrer sponsored" onClick={onClick}
+          className={cx("block rounded-[18px] transition-opacity motion-reduce:transition-none hover:opacity-90", FOCUS)}>{content}</a>
       ) : content}
     </li>
   );
