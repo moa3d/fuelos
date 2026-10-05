@@ -31,7 +31,7 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-label-11 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary ${active ? "text-brand-primary" : "text-text-muted"}`}
+              className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-label-11 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary ${active ? "text-brand-primary" : "text-text-secondary"}`}
             >
               <span
                 className={`flex h-7 w-11 items-center justify-center rounded-full ${active ? "bg-brand-primary-50" : ""}`}

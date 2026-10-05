@@ -1,14 +1,17 @@
 "use client";
-// C4 — تفاصيل الفاتورة (design/screens/C4.png). «تنزيل PDF» stays disabled: invoices.pdf_path exists but
+// C4 — تفاصيل الفاتورة (design/screens/C4.png, CU7). «تنزيل PDF» stays disabled: invoices.pdf_path exists but
 // nothing populates it yet (Storage milestone, docs/briefs/04b item 3). «طلب تصحيح أو شكوى» is real: it files
 // a complaint tied to this invoice (complaints + complaint_messages, both customer-scoped inserts).
 import { formatDay, formatMoney, formatNumber, formatTime } from "@fuelos/core";
-import { AlertBanner, Button, StatusBadge, TextArea } from "@fuelos/ui";
+import { AlertBanner, Button, StatusBadge, TextArea, cx } from "@fuelos/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/Icon";
 import { invoiceStatusBadge } from "@/lib/invoice-rules";
 import { fileInvoiceComplaint, loadInvoiceDetail, type InvoiceDetail, type Outcome } from "@/lib/invoices-data";
 import { useCustomer } from "../../customer-context";
+
+const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: InvoiceDetail };
 
@@ -29,12 +32,18 @@ export default function InvoiceDetailPage() {
   }, [userId, params.id]);
 
   if (load.status === "loading") {
-    return <div aria-busy className="mx-auto max-w-[480px] p-4"><span className="block h-96 animate-pulse rounded-lg bg-surface-muted" /></div>;
+    return (
+      <div aria-busy className="mx-auto flex max-w-[480px] flex-col gap-4 p-4">
+        <span className="block h-44 motion-safe:animate-pulse rounded-[18px] bg-surface-muted" />
+        <span className="block h-56 motion-safe:animate-pulse rounded-[18px] bg-surface-muted" />
+        <span className="block h-14 motion-safe:animate-pulse rounded-md bg-surface-muted" />
+      </div>
+    );
   }
   if (load.status === "error") {
     return (
       <div className="mx-auto max-w-[480px] p-4">
-        <AlertBanner tone="danger" title="تعذّر تحميل الفاتورة" action={<Button variant="secondary" onClick={() => router.back()}>رجوع</Button>} />
+        <AlertBanner tone="danger" title="تعذّر تحميل الفاتورة" action={<Button variant="secondary" className="min-h-11" onClick={() => router.back()}>رجوع</Button>} />
       </div>
     );
   }
@@ -45,19 +54,24 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="mx-auto flex max-w-[480px] flex-col gap-4 p-4 pb-10">
-      <button type="button" onClick={() => router.back()} className="self-start text-body-strong-14 text-brand-primary">‹ رجوع</button>
+      <button type="button" onClick={() => router.back()}
+        className={cx("inline-flex min-h-11 items-center gap-2 self-start rounded-full text-body-strong-14 text-brand-primary", FOCUS)}>
+        <span className="inline-flex size-11 items-center justify-center rounded-full bg-surface-muted text-text-primary">
+          <Icon name="chevron-left" size={20} className="rtl:rotate-180" />
+        </span>
+        رجوع
+      </button>
 
-      <div className="flex items-center gap-2">
-        <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
-        <span className="text-body-regular-14 text-text-secondary">{inv.stationName} · فاتورة INV-{inv.number}</span>
-      </div>
-
-      <div>
+      <section className="flex flex-col items-center gap-2 rounded-[18px] border border-border-default bg-surface-card p-5 text-center shadow-card">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+          <span className="text-body-regular-14 text-text-secondary">{inv.stationName} · فاتورة INV-{inv.number}</span>
+        </div>
         <p className="text-body-small-12 text-text-secondary">الإجمالي</p>
-        <p className="text-number-l-24">{money(inv.amount)}</p>
-      </div>
+        <p className="text-number-xl-32 text-text-primary">{money(inv.amount)}</p>
+      </section>
 
-      <dl className="flex flex-col divide-y divide-border-default rounded-lg bg-surface-card p-4 shadow-card">
+      <dl className="flex flex-col divide-y divide-border-default rounded-[18px] border border-border-default bg-surface-card px-4 shadow-card">
         <Row label="التاريخ" value={`${formatDay(inv.issuedAt)} · ${formatTime(inv.issuedAt)}`} />
         <Row label="الوقود" value={inv.product || "—"} />
         <Row label="الكمية" value={`${formatNumber(Number(inv.liters), 2)} لتر`} />
@@ -68,24 +82,27 @@ export default function InvoiceDetailPage() {
       </dl>
 
       {inv.loyalty && (
-        <div className="rounded-md bg-status-success-50 p-3 text-body-regular-14 text-status-success-700">
-          🎁 أضيفت {inv.loyalty.points} نقطة إلى رصيدك · الرصيد {formatNumber(inv.loyalty.runningBalance, 0)}
+        <div className="flex items-center gap-3 rounded-md bg-brand-action-50 p-3 text-body-strong-14 text-brand-action-700">
+          <Icon name="gift" size={20} className="shrink-0" />
+          <span>أضيفت {inv.loyalty.points} نقطة إلى رصيدك · الرصيد {formatNumber(inv.loyalty.runningBalance, 0)}</span>
         </div>
       )}
 
       {inv.corrections.length > 0 && (
-        <div className="flex flex-col gap-1 rounded-md bg-surface-muted p-3 text-body-small-12 text-text-secondary">
+        <div className="flex flex-col gap-1 rounded-md bg-status-info-50 p-3 text-body-regular-14 text-status-info-700">
           {inv.corrections.map((c) => <p key={c.id}>تصحيح {money(c.amountDelta)} — «{c.reason}» · {formatDay(c.createdAt)}</p>)}
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Button variant="secondary" block disabled title="إصدار ملف PDF غير متاح بعد">تنزيل PDF</Button>
-      </div>
+      <Button variant="secondary" block disabled className="min-h-11" title="إصدار ملف PDF غير متاح بعد">
+        تنزيل PDF
+      </Button>
 
       {!complaintOpen ? (
-        <button type="button" onClick={() => setComplaintOpen(true)} className="text-start text-body-strong-14 text-brand-primary">
-          طلب تصحيح أو شكوى ›
+        <button type="button" onClick={() => setComplaintOpen(true)}
+          className={cx("flex min-h-11 w-full items-center justify-between gap-2 rounded-md text-body-strong-14 text-brand-primary", FOCUS)}>
+          طلب تصحيح أو شكوى
+          <Icon name="chevron-left" size={18} />
         </button>
       ) : (
         <ComplaintForm customerId={userId} stationId={inv.stationId} invoiceId={inv.id} onClose={() => setComplaintOpen(false)} />
@@ -98,9 +115,9 @@ export default function InvoiceDetailPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between py-2.5 text-body-regular-14">
+    <div className="flex items-center justify-between gap-3 py-2.5 text-body-regular-14">
       <dt className="text-text-secondary">{label}</dt>
-      <dd className="font-semibold">{value}</dd>
+      <dd className="text-end font-semibold text-text-primary">{value}</dd>
     </div>
   );
 }
@@ -119,12 +136,12 @@ function ComplaintForm({ customerId, stationId, invoiceId, onClose }: { customer
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border-default p-3">
+    <div className="flex flex-col gap-2 rounded-[18px] border border-border-default bg-surface-card p-3 shadow-card">
       <TextArea label="صف المشكلة" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثال: العرض لم يُطبَّق على الفاتورة" />
       {msg && <AlertBanner tone={msg.ok ? "success" : "danger"} title={msg.text} />}
       <div className="flex gap-2">
-        <Button variant="action" disabled={busy || !subject.trim()} onClick={send}>{busy ? "جارٍ الإرسال…" : "إرسال"}</Button>
-        <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+        <Button variant="action" className="min-h-11" disabled={busy || !subject.trim()} onClick={send}>{busy ? "جارٍ الإرسال…" : "إرسال"}</Button>
+        <Button variant="ghost" className="min-h-11" onClick={onClose}>إلغاء</Button>
       </div>
     </div>
   );
