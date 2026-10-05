@@ -2,10 +2,12 @@
 // Home banner (C1, guests included) — docs/briefs/10a; spec §5. Hidden entirely once loaded with no ads, and
 // a failed active_ads() (lib/ads-data.ts never throws) renders the same way: nothing. 16:9, auto-advances
 // every 5s, swipe on touch, dots, pauses while touched.
+import { cx } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState, type TouchEvent } from "react";
 import { adImageUrl, getViewerKey, loadActiveAds, recordAdEvent, type ActiveAd } from "@/lib/ads-data";
 import { adCaption, clampIndex, isClickable, nextIndex, prevIndex, swipeDirection } from "@/lib/ads-rules";
+import { Icon } from "./Icon";
 import { useAdImpression } from "./useAdImpression";
 
 const AUTO_ADVANCE_MS = 5000;
@@ -62,9 +64,19 @@ export function AdBanner() {
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-2">
+    <div ref={containerRef} className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="flex items-center gap-1.5 text-label-12 text-text-secondary">
+          <Icon name="megaphone" size={16} />
+          من رعاة FuelOS
+        </p>
+        <Link href="/ads" className="inline-flex min-h-11 items-center text-body-strong-14 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
+          عرض الكل
+        </Link>
+      </div>
+
       <div
-        className="relative aspect-video w-full overflow-hidden rounded-lg bg-surface-muted"
+        className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-surface-muted"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
@@ -95,15 +107,20 @@ export function AdBanner() {
         })}
       </div>
 
-      <div className="flex items-center justify-between px-1">
-        <div className="flex gap-1.5" role="tablist" aria-label="الإعلانات">
+      {/* Dots: 6px visuals; the 44px touch target is a pseudo-element, like FuelChips. */}
+      <div className="flex justify-center">
+        <div className="flex items-center gap-2" role="tablist" aria-label="الإعلانات">
           {ads.map((ad, i) => (
             <button key={ad.id} role="tab" aria-selected={i === index} aria-label={`الإعلان ${i + 1}`}
               onClick={() => setCurrent(i)}
-              className={`size-1.5 rounded-full ${i === index ? "bg-brand-primary" : "bg-border-strong"}`} />
+              className={cx(
+                "relative h-1.5 rounded-full motion-safe:transition-[width] motion-safe:duration-300",
+                "before:absolute before:-inset-[19px] before:content-['']",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary",
+                i === index ? "w-[18px] bg-brand-primary" : "w-1.5 bg-border-strong",
+              )} />
           ))}
         </div>
-        <Link href="/ads" className="text-body-small-12 text-brand-primary">عرض الكل</Link>
       </div>
     </div>
   );

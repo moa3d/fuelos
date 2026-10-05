@@ -4,10 +4,11 @@
 // OTP email delivery stayed unreliable with no SMTP provider configured, docs/briefs/04d). «نسيت كلمة المرور»
 // is intentionally not here yet — a later addition.
 import { AUTH_NETWORK_MESSAGE, authErrorMessage } from "@fuelos/core";
-import { AlertBanner, Button, Input } from "@fuelos/ui";
+import { AlertBanner, Button, Input, cx } from "@fuelos/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Icon } from "@/components/Icon";
 import { customerAccess, ensureCustomerRow } from "@/lib/customer-access";
 import { supabase } from "@/lib/supabase";
 
@@ -100,27 +101,29 @@ export default function LoginPage() {
     });
   };
 
+  const tabClass = (on: boolean) => cx(
+    "h-11 flex-1 text-body-strong-14 transition-colors motion-reduce:transition-none",
+    "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-primary",
+    on ? "bg-brand-primary text-white" : "bg-surface-card text-text-secondary",
+  );
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col justify-between p-6">
-      <div>
-        <div className="flex items-center justify-between">
-          <Link href="/" className="text-body-strong-14 text-brand-primary">تصفّح المحطات دون حساب ‹</Link>
+    <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col p-6">
+      <div className="flex flex-1 flex-col">
+        <div className="mt-6 flex items-center gap-3">
+          <span className="flex size-14 items-center justify-center rounded-lg bg-brand-dark">
+            <Icon name="fuel" size={28} className="text-brand-action" />
+          </span>
+          <span className="text-heading-h2-20 text-text-primary">FuelOS</span>
         </div>
 
-        <div className="mt-8 flex items-center gap-2">
-          <span className="flex size-10 items-center justify-center rounded-md bg-brand-action text-brand-on-action"><PumpIcon /></span>
-          <span className="text-heading-h2-20">FuelOS</span>
-        </div>
-
-        <h1 className="mt-6 text-display-32">{tab === "signin" ? "تسجيل الدخول" : "حساب جديد"}</h1>
+        <h1 className="mt-6 text-heading-h1-24 text-text-primary">{tab === "signin" ? "تسجيل الدخول" : "حساب جديد"}</h1>
 
         <div role="tablist" aria-label="الدخول أو إنشاء حساب" className="mt-6 flex overflow-hidden rounded-full border border-border-default">
-          <button type="button" role="tab" aria-selected={tab === "signin"} onClick={() => switchTab("signin")}
-            className={`h-10 flex-1 text-body-strong-14 ${tab === "signin" ? "bg-brand-primary text-white" : "bg-surface-card text-text-secondary"}`}>
+          <button type="button" role="tab" aria-selected={tab === "signin"} onClick={() => switchTab("signin")} className={tabClass(tab === "signin")}>
             دخول
           </button>
-          <button type="button" role="tab" aria-selected={tab === "signup"} onClick={() => switchTab("signup")}
-            className={`h-10 flex-1 text-body-strong-14 ${tab === "signup" ? "bg-brand-primary text-white" : "bg-surface-card text-text-secondary"}`}>
+          <button type="button" role="tab" aria-selected={tab === "signup"} onClick={() => switchTab("signup")} className={tabClass(tab === "signup")}>
             حساب جديد
           </button>
         </div>
@@ -132,7 +135,7 @@ export default function LoginPage() {
           <form onSubmit={signIn} className="mt-6 flex flex-col gap-4" noValidate>
             <Input label="البريد الإلكتروني" dir="ltr" autoComplete="email" inputMode="email"
               value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} placeholder="you@example.com" />
-            <Input label="كلمة المرور" type="password" dir="ltr" autoComplete="current-password"
+            <PasswordField label="كلمة المرور" autoComplete="current-password"
               value={password} onChange={(e) => setPassword(e.target.value)} />
             <Button type="submit" variant="action" size="lg" block disabled={!emailValid || !password || busy}>
               {busy ? "جارٍ الدخول…" : "دخول"}
@@ -142,7 +145,7 @@ export default function LoginPage() {
           <form onSubmit={signUp} className="mt-6 flex flex-col gap-4" noValidate>
             <Input label="البريد الإلكتروني" dir="ltr" autoComplete="email" inputMode="email"
               value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} placeholder="you@example.com" />
-            <Input label="كلمة المرور" type="password" dir="ltr" autoComplete="new-password"
+            <PasswordField label="كلمة المرور" autoComplete="new-password"
               value={password} onChange={(e) => setPassword(e.target.value)} error={passwordError}
               helper={passwordError ? undefined : `${MIN_PASSWORD} أحرف على الأقل`} />
             <Input label="تأكيد كلمة المرور" type="password" dir="ltr" autoComplete="new-password"
@@ -153,25 +156,69 @@ export default function LoginPage() {
           </form>
         )}
 
-        <div className="mt-6 rounded-md bg-brand-primary-50 p-4 text-body-regular-14">
-          <p className="text-body-strong-14">لماذا حساب؟</p>
+        <div className="mt-6 rounded-[18px] bg-brand-primary-50 p-4 text-body-regular-14">
+          <p className="text-body-strong-14 text-text-primary">لماذا حساب؟</p>
           <ul className="mt-2 flex flex-col gap-1.5 text-text-secondary">
             <li>· كل فواتير التعبئة في مكان واحد</li>
             <li>· نقاط ولاء من الفواتير المؤكدة فقط</li>
             <li>· مصروف سيارتك الشهري بلغة بسيطة</li>
           </ul>
         </div>
+
+        <Link href="/"
+          className="mt-8 flex min-h-11 items-center justify-center gap-1.5 text-body-strong-14 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
+          تصفّح المحطات دون حساب
+          <Icon name="chevron-left" size={16} className="rtl:rotate-180" />
+        </Link>
       </div>
 
-      <p className="mt-6 text-center text-body-small-12 text-text-muted">بالمتابعة توافق على الشروط وسياسة الخصوصية</p>
+      <p className="mt-6 text-center text-body-small-12 text-text-secondary">بالمتابعة توافق على الشروط وسياسة الخصوصية</p>
     </div>
   );
 }
 
-function PumpIcon() {
+/** Password field with an «إظهار» / «إخفاء» toggle. Same look as the shared Input (which has no slot for a button). Local UI state only. */
+function PasswordField({ label, value, onChange, autoComplete, error, helper }: {
+  label: string;
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  autoComplete: string;
+  error?: string;
+  helper?: string;
+}) {
+  const [shown, setShown] = useState(false);
+  const autoId = useId();
+  const noteId = `${autoId}-note`;
+  const note = error ?? helper;
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3 22h12M4 9h10M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5" />
-    </svg>
+    <div className="flex flex-col gap-1">
+      <label htmlFor={autoId} className="text-label-12 text-text-secondary">{label}</label>
+      <div className={cx(
+        "flex h-11 items-center gap-2 rounded-md border bg-surface-card ps-4 pe-1 focus-within:border-brand-primary focus-within:ring-2 focus-within:ring-brand-primary-50",
+        error ? "border-status-danger" : "border-border-strong",
+      )}>
+        <input
+          id={autoId}
+          type={shown ? "text" : "password"}
+          dir="ltr"
+          autoComplete={autoComplete}
+          value={value}
+          onChange={onChange}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={note ? noteId : undefined}
+          className="min-w-0 flex-1 bg-transparent font-sans text-body-large-16 text-text-primary outline-none placeholder:text-text-muted"
+        />
+        <button
+          type="button"
+          onClick={() => setShown((s) => !s)}
+          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-2 text-body-strong-14 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+        >
+          {shown ? "إخفاء" : "إظهار"}
+        </button>
+      </div>
+      {note && (
+        <p id={noteId} className={cx("text-body-small-12", error ? "text-status-danger-700" : "text-text-secondary")}>{note}</p>
+      )}
+    </div>
   );
 }

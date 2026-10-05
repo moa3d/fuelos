@@ -39,7 +39,7 @@ export function StationCard({
     <article className={cx("rounded-[18px] border border-border-default bg-surface-card px-4 py-3.5 shadow-card", className)}>
       <div className="flex items-baseline justify-between gap-2">
         {href ? (
-          <Link href={href} className="text-body-strong-14 text-text-primary hover:underline">{name}</Link>
+          <Link href={href} className="text-body-strong-14 text-text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">{name}</Link>
         ) : (
           <h2 className="text-body-strong-14 text-text-primary">{name}</h2>
         )}
@@ -47,7 +47,7 @@ export function StationCard({
       </div>
 
       {mapHref && (
-        <a href={mapHref} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-11 items-center gap-1 text-body-small-12 text-brand-primary">
+        <a href={mapHref} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-11 items-center gap-1 text-body-small-12 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
           <Icon name="pin" size={14} />
           الموقع على الخريطة
         </a>
@@ -66,7 +66,7 @@ export function StationCard({
       </ul>
 
       {updated && (
-        <p className={cx("mt-2 flex items-center gap-1 text-body-small-12", stale ? "text-status-warning-700" : "text-text-muted")}>
+        <p className={cx("mt-2 flex items-center gap-1 text-body-small-12", stale ? "text-status-warning-700" : "text-text-secondary")}>
           <Icon name="clock" size={14} />
           {updated}
         </p>
