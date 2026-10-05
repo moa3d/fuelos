@@ -2,8 +2,8 @@
 // C7 «شكاواي» — split out from the combined رewards/complaints screen now that the bottom nav gives it its own
 // tab. Logic and queries are unchanged (lib/complaints-data.ts, lib/complaint-rules.ts).
 import { formatDay, formatTime } from "@fuelos/core";
-import { AlertBanner, Button, cx, StatusBadge, TextArea } from "@fuelos/ui";
-import { useEffect, useState } from "react";
+import { AlertBanner, Button, cx, StatusBadge } from "@fuelos/ui";
+import { Fragment, useEffect, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { complaintBadge, KIND_LABEL, timelineStep, type ComplaintKind } from "@/lib/complaint-rules";
 import {
@@ -99,6 +99,13 @@ function ComplaintDetail({ row, onBack }: { row: ComplaintRow; onBack: () => voi
   const [error, setError] = useState<string>();
   const badge = complaintBadge(row.status);
   const step = timelineStep(row.status);
+  const doneFlags = [true, step !== "sent", step === "resolved"];
+  const firstOpen = doneFlags.indexOf(false);
+  const stages = ["أُرسلت", "قيد الرد", "تم الحل"].map((label, i) => ({
+    label,
+    done: doneFlags[i],
+    state: (doneFlags[i] ? "done" : i === firstOpen ? "current" : "upcoming") as StageState,
+  }));
 
   useEffect(() => {
     loadComplaintMessages(row.id).then(setMessages, () => setMessages([]));
@@ -115,30 +122,43 @@ function ComplaintDetail({ row, onBack }: { row: ComplaintRow; onBack: () => voi
 
   return (
     <div className="flex flex-col gap-4">
-      <button type="button" onClick={onBack} className="self-start text-body-strong-14 text-brand-primary">‹ رجوع</button>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-heading-h2-20">{row.subject}</p>
-        <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={onBack} aria-label="رجوع"
+          className={cx("inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-muted text-text-primary transition-colors motion-reduce:transition-none hover:bg-border-default", FOCUS)}>
+          <Icon name="chevron-left" size={20} className="rtl:rotate-180" />
+        </button>
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-heading-h2-20">{row.subject}</p>
+            <p className="text-body-small-12 text-text-secondary">{row.stationName}{row.invoiceNumber ? ` · فاتورة INV-${row.invoiceNumber}` : ""}</p>
+          </div>
+          <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+        </div>
       </div>
-      <p className="text-body-small-12 text-text-secondary">{row.stationName}{row.invoiceNumber ? ` · فاتورة INV-${row.invoiceNumber}` : ""}</p>
 
-      <div className="flex items-center gap-1 text-body-small-12">
-        <TimelineDot done label="أُرسلت" />
-        <div className="h-px flex-1 bg-border-default" />
-        <TimelineDot done={step !== "sent"} label="قيد الرد" />
-        <div className="h-px flex-1 bg-border-default" />
-        <TimelineDot done={step === "resolved"} label="تم الحل" />
+      <div className="flex flex-col gap-3 rounded-[18px] border border-border-default bg-surface-card p-4 shadow-card">
+        <div className="flex items-start text-body-small-12">
+          {stages.map((st, i) => (
+            <Fragment key={st.label}>
+              {i > 0 && <div aria-hidden className={cx("mt-[11px] h-0.5 flex-1", stages[i - 1].done ? "bg-brand-action" : "bg-border-default")} />}
+              <div className="flex shrink-0 flex-col items-center gap-1.5">
+                <StageDot state={st.state} />
+                <span className={cx("whitespace-nowrap", st.state === "upcoming" ? "text-text-secondary" : "text-text-primary")}>{st.label}</span>
+              </div>
+            </Fragment>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
         {messages === undefined ? (
-          <span className="block h-16 animate-pulse rounded-md bg-surface-muted" />
+          <span className="block h-16 motion-safe:animate-pulse rounded-[16px] bg-surface-muted" />
         ) : messages.length === 0 ? (
           <p className="text-body-regular-14 text-text-secondary">لا رسائل بعد.</p>
         ) : messages.map((m) => (
-          <div key={m.id} className={`max-w-[85%] rounded-lg p-3 text-body-regular-14 ${m.authorSide === "customer" ? "self-end bg-brand-primary text-white" : "self-start bg-surface-muted"}`}>
+          <div key={m.id} className={cx("max-w-[85%] rounded-[16px] p-3 text-body-regular-14 text-text-primary", m.authorSide === "customer" ? "self-end bg-brand-primary-50" : "self-start border border-border-default bg-surface-card")}>
             <p>{m.body}</p>
-            <p className={`mt-1 text-body-small-12 ${m.authorSide === "customer" ? "text-white/80" : "text-text-secondary"}`}>{formatTime(m.createdAt)}</p>
+            <p className="mt-1 text-body-small-12 text-text-secondary">{formatTime(m.createdAt)}</p>
           </div>
         ))}
       </div>
@@ -147,21 +167,32 @@ function ComplaintDetail({ row, onBack }: { row: ComplaintRow; onBack: () => voi
 
       {row.status !== "resolved" && (
         <div className="flex flex-col gap-2">
-          <TextArea label="ردّك" value={reply} onChange={(e) => setReply(e.target.value)} />
-          <Button variant="action" disabled={busy || !reply.trim()} onClick={send}>{busy ? "جارٍ الإرسال…" : "إرسال"}</Button>
+          <div className="flex items-center gap-2.5">
+            <textarea rows={1} aria-label="ردّك" placeholder="ردّك" value={reply} onChange={(e) => setReply(e.target.value)}
+              className="min-h-11 flex-1 resize-none rounded-full border border-border-strong bg-surface-card px-4 py-2.5 font-sans text-body-large-16 text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary-50" />
+            <button type="button" aria-label={busy ? "جارٍ الإرسال…" : "إرسال"} disabled={busy || !reply.trim()} onClick={send}
+              className={cx("inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-primary text-white transition-colors motion-reduce:transition-none hover:bg-brand-primary-hover disabled:opacity-50", FOCUS)}>
+              <Icon name="send" size={18} />
+            </button>
+          </div>
+          {busy && <p className="text-body-small-12 text-text-secondary">جارٍ الإرسال…</p>}
         </div>
       )}
     </div>
   );
 }
 
-function TimelineDot({ done, label }: { done: boolean; label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span aria-hidden className={`size-2.5 rounded-full ${done ? "bg-status-success" : "bg-border-default"}`} />
-      <span className="text-text-muted">{label}</span>
-    </div>
-  );
+type StageState = "done" | "current" | "upcoming";
+
+// Done points come from the same flags the timeline always used; the first undone point is the current one.
+function StageDot({ state }: { state: StageState }) {
+  if (state === "done") {
+    return <span aria-hidden className="flex size-6 items-center justify-center rounded-full bg-brand-action text-white"><Icon name="check" size={14} /></span>;
+  }
+  if (state === "current") {
+    return <span aria-hidden className="flex size-6 items-center justify-center rounded-full bg-brand-primary ring-4 ring-brand-primary-50"><span className="size-2 rounded-full bg-white" /></span>;
+  }
+  return <span aria-hidden className="size-6 rounded-full border-2 border-border-strong bg-surface-card" />;
 }
 
 function NewComplaintModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
