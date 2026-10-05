@@ -2,14 +2,17 @@
 // C7 «شكاواي» — split out from the combined رewards/complaints screen now that the bottom nav gives it its own
 // tab. Logic and queries are unchanged (lib/complaints-data.ts, lib/complaint-rules.ts).
 import { formatDay, formatTime } from "@fuelos/core";
-import { AlertBanner, Button, StatusBadge, TextArea } from "@fuelos/ui";
+import { AlertBanner, Button, cx, StatusBadge, TextArea } from "@fuelos/ui";
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/Icon";
 import { complaintBadge, KIND_LABEL, timelineStep, type ComplaintKind } from "@/lib/complaint-rules";
 import {
   fileComplaint, loadComplaintMessages, loadComplaints, loadStationOptions, replyToComplaint,
   type ComplaintRow, type ComplaintsData, type Message, type Outcome, type StationOption,
 } from "@/lib/complaints-data";
 import { useCustomer } from "../customer-context";
+
+const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary";
 
 export default function ComplaintsPage() {
   return (
@@ -39,30 +42,42 @@ function ComplaintsTab() {
 
   return (
     <>
-      {load.status === "loading" && <span className="block h-40 animate-pulse rounded-lg bg-surface-muted" />}
+      {load.status === "loading" && (
+        <div aria-busy className="flex flex-col gap-3">
+          {[0, 1, 2].map((i) => <span key={i} className="block h-[120px] motion-safe:animate-pulse rounded-[18px] bg-surface-muted" />)}
+        </div>
+      )}
       {load.status === "error" && <AlertBanner tone="danger" title="تعذّر التحميل" />}
       {load.status === "ready" && (
         <>
           <div className="flex items-center justify-between">
             <h2 className="text-heading-h3-16">{load.data.complaints.length} {load.data.complaints.length === 1 ? "شكوى" : "شكاوى"}</h2>
-            <Button variant="action" size="md" onClick={() => setNewOpen(true)}>شكوى جديدة +</Button>
+            <button type="button" onClick={() => setNewOpen(true)}
+              className={cx("inline-flex h-11 items-center gap-2 rounded-sm bg-brand-primary px-4 text-body-strong-14 text-white transition-colors motion-reduce:transition-none hover:bg-brand-primary-hover", FOCUS)}>
+              <Icon name="plus" size={16} />
+              شكوى جديدة
+            </button>
           </div>
           {load.data.complaints.length === 0 ? (
-            <p className="rounded-lg bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">لا توجد شكاوى — كل شيء على ما يرام.</p>
+            <p className="rounded-[18px] border border-dashed border-border-default bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">لا توجد شكاوى — كل شيء على ما يرام.</p>
           ) : (
             <ul className="flex flex-col gap-3">
               {load.data.complaints.map((c) => {
                 const badge = complaintBadge(c.status);
                 return (
                   <li key={c.id}>
-                    <button type="button" onClick={() => setSelected(c)} className="w-full rounded-lg bg-surface-card p-4 text-start shadow-card">
+                    <button type="button" onClick={() => setSelected(c)}
+                      className={cx("flex w-full flex-col gap-2 rounded-[18px] border border-border-default bg-surface-card p-4 text-start shadow-card transition-colors motion-reduce:transition-none hover:bg-surface-muted", FOCUS)}>
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-body-strong-14">{c.subject}</p>
+                        <p className="text-body-strong-14">{c.stationName}</p>
                         <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
                       </div>
-                      <p className="mt-1 text-body-small-12 text-text-secondary">
-                        {c.stationName}{c.invoiceNumber ? ` · فاتورة INV-${c.invoiceNumber}` : ` · ${KIND_LABEL[c.kind]}`} · {formatDay(c.createdAt)}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge tone={c.kind === "price_report" ? "warning" : "primary"}>{KIND_LABEL[c.kind]}</StatusBadge>
+                        {c.invoiceNumber && <span className="text-body-small-12 text-text-secondary">فاتورة INV-{c.invoiceNumber}</span>}
+                      </div>
+                      <p className="line-clamp-2 text-body-regular-14 text-text-secondary">{c.subject}</p>
+                      <p className="text-body-small-12 text-text-secondary">{formatDay(c.createdAt)}</p>
                     </button>
                   </li>
                 );
