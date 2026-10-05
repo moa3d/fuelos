@@ -11,7 +11,8 @@ import {
 } from "@/lib/ads-data";
 import { exportAdsStatsToExcel } from "@/lib/ads-export";
 import {
-  adImagePath, ctrPercent, endOfDayLocal, MAX_IMAGE_BYTES, reorderChanges, sortStatTotals, startOfDayLocal, statusBadge,
+  ALL_SPONSORS, adImagePath, ctrPercent, endOfDayLocal, filterBySponsor, MAX_IMAGE_BYTES, reorderChanges,
+  sortStatTotals, sponsorNames, startOfDayLocal, statusBadge,
   toDateInputValue, validateImageFile, validateLink, whatsappLink,
   type StatSortKey, type SortDir as AdSortDir,
 } from "@/lib/ads-rules";
@@ -361,6 +362,7 @@ function AdsStats() {
   const [sort, setSort] = useState<{ key: StatSortKey; dir: AdSortDir }>({ key: "views", dir: "desc" });
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string>();
+  const [sponsor, setSponsor] = useState<string>(ALL_SPONSORS);
 
   // runs on mount (tick=0) and again whenever "تطبيق" bumps tick; from/to are read from the latest render's
   // closure, not listed as deps, so editing the date inputs alone doesn't refetch until the button is pressed.
@@ -376,7 +378,11 @@ function AdsStats() {
 
   function run() { setLoad({ status: "loading" }); setTick((t) => t + 1); }
 
-  const totals = useMemo(() => (load.status === "ready" ? load.data.totals : []), [load]);
+  const allTotals = useMemo(() => (load.status === "ready" ? load.data.totals : []), [load]);
+  const sponsors = useMemo(() => sponsorNames(allTotals), [allTotals]);
+  // a sponsor picked for an earlier period may have no ads in this one: fall back to «الكل» rather than showing nothing
+  const sponsorFilter = sponsor === ALL_SPONSORS || sponsors.includes(sponsor) ? sponsor : ALL_SPONSORS;
+  const totals = useMemo(() => filterBySponsor(allTotals, sponsorFilter), [allTotals, sponsorFilter]);
   const shown = useMemo(() => sortStatTotals(totals, sort.key, sort.dir), [totals, sort]);
   const grand = useMemo(() => {
     const views = totals.reduce((s, t) => s + t.views, 0);
@@ -392,7 +398,7 @@ function AdsStats() {
     if (load.status !== "ready" || exporting) return;
     setExporting(true); setExportError(undefined);
     try {
-      await exportAdsStatsToExcel(shown, { from, to });
+      await exportAdsStatsToExcel(shown, { from, to, sponsor: sponsorFilter === ALL_SPONSORS ? null : sponsorFilter });
     } catch {
       setExportError("تعذّر إنشاء ملف Excel — حاول مرة أخرى");
     } finally {
@@ -406,6 +412,14 @@ function AdsStats() {
         <Input label="من" type="date" dir="ltr" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input label="إلى" type="date" dir="ltr" value={to} onChange={(e) => setTo(e.target.value)} />
         <Button variant="secondary" onClick={run}>تطبيق</Button>
+        <label className="flex flex-col gap-1">
+          <span className="text-label-12 text-text-secondary">الراعي</span>
+          <select value={sponsorFilter} onChange={(e) => setSponsor(e.target.value)} disabled={load.status !== "ready"}
+            className="h-10 min-w-48 rounded-md border border-border-default bg-surface-card px-2 text-body-regular-14 disabled:opacity-50">
+            <option value={ALL_SPONSORS}>الكل</option>
+            {sponsors.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
         <span className="flex-1" />
         <Button variant="action" disabled={load.status !== "ready" || totals.length === 0 || exporting} title={totals.length === 0 ? "لا توجد أرقام في هذه الفترة لتصديرها" : undefined} onClick={onExport}>
           {exporting ? "جارٍ التصدير…" : "تصدير Excel"}

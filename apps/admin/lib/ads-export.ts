@@ -1,9 +1,11 @@
 // «إحصائيات الإعلانات» export — same exceljs approach as A5's lib/sales-export.ts (dynamic import, RTL sheet,
 // bold header, a totals row); SheetJS ("xlsx") is intentionally not used.
 import { formatDay, formatTime } from "@fuelos/core";
-import { ctrPercent, STATS_HEADERS, toStatsExportRow, type StatTotal } from "./ads-rules.ts";
+import { ctrPercent, statsExportFileName, STATS_HEADERS, toStatsExportRow, type StatTotal } from "./ads-rules.ts";
 
-export type AdsExportMeta = { from: string; to: string };
+/** sponsor: null for «الكل» (one sheet, as before), or the sponsor's name for a single-sponsor report. `totals`
+ * must already be filtered to that sponsor by the caller, so the file always matches what the screen shows. */
+export type AdsExportMeta = { from: string; to: string; sponsor: string | null };
 
 /** Numbers here are approximate device-based counts, not an audited ledger — label it on the sheet itself so a
  * sponsor report never reads as more precise than it is (brief 10a: "أرقام تقديرية"). */
@@ -15,9 +17,14 @@ export async function exportAdsStatsToExcel(totals: StatTotal[], meta: AdsExport
 
   const sheet = workbook.addWorksheet("إحصائيات الإعلانات", { views: [{ rightToLeft: true }] });
 
+  if (meta.sponsor !== null) {
+    const titleRow = sheet.addRow([`تقرير إعلانات ${meta.sponsor}`]);
+    titleRow.font = { bold: true, size: 14 };
+    sheet.mergeCells(1, 1, 1, STATS_HEADERS.length);
+  }
   const infoRow = sheet.addRow([`الفترة: ${meta.from} إلى ${meta.to} · أرقام تقديرية (جهاز واحد = مشاهدة/نقرة واحدة باليوم) · صُدِّر في ${formatDay(new Date())} ${formatTime(new Date())}`]);
   infoRow.font = { italic: true, color: { argb: "FF666666" } };
-  sheet.mergeCells(1, 1, 1, STATS_HEADERS.length);
+  sheet.mergeCells(sheet.rowCount, 1, sheet.rowCount, STATS_HEADERS.length);
   sheet.addRow([]);
 
   const headerRow = sheet.addRow([...STATS_HEADERS]);
@@ -45,7 +52,7 @@ export async function exportAdsStatsToExcel(totals: StatTotal[], meta: AdsExport
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `fuelos-ads-stats_${meta.from}_to_${meta.to}.xlsx`;
+  a.download = statsExportFileName(meta.sponsor, meta.from, meta.to);
   document.body.appendChild(a);
   a.click();
   a.remove();

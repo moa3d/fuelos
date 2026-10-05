@@ -90,6 +90,25 @@ export function reorderChanges(list: { id: string; sortOrder: number }[], index:
     .map(({ id, sortOrder }) => ({ id, sortOrder }));
 }
 
+export const ALL_SPONSORS = "all";
+
+/** Distinct sponsor names in the report, Arabic-sorted — the «الراعي» filter's options. */
+export function sponsorNames(totals: StatTotal[]): string[] {
+  return [...new Set(totals.map((t) => t.sponsorName))].sort((a, b) => a.localeCompare(b, "ar"));
+}
+
+export function filterBySponsor(totals: StatTotal[], sponsor: string): StatTotal[] {
+  return sponsor === ALL_SPONSORS ? totals : totals.filter((t) => t.sponsorName === sponsor);
+}
+
+/** «الكل» keeps the original name; one sponsor → fuelos-ads_<sponsor>_<from>_<to>.xlsx. Only the characters
+ * Windows forbids in file names are replaced, so Arabic names stay readable. */
+export function statsExportFileName(sponsor: string | null, from: string, to: string): string {
+  if (sponsor === null) return `fuelos-ads-stats_${from}_to_${to}.xlsx`;
+  const safe = sponsor.replace(/[\\/:*?"<>|]/g, "-").trim().slice(0, 80) || "راعٍ";
+  return `fuelos-ads_${safe}_${from}_${to}.xlsx`;
+}
+
 /** Click-through rate as a percentage with one decimal (12 of 100 → 12, 1 of 3 → 33.3). Zero views → 0, never
  * NaN. Clicks are never more than views on the server (record_ad_event back-fills the view), so no clamping. */
 export function ctrPercent(views: number, clicks: number): number {

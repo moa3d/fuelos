@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  adImagePath, ctrPercent, endOfDayLocal, extensionFor, reorderChanges, sortStatTotals, startOfDayLocal, statusBadge,
+  adImagePath, ctrPercent, endOfDayLocal, extensionFor, filterBySponsor, reorderChanges, sortStatTotals, sponsorNames,
+  startOfDayLocal, statsExportFileName, statusBadge, ALL_SPONSORS,
   toDateInputValue, toStatsExportRow, validateImageFile, validateLink, whatsappLink,
 } from "./ads-rules.ts";
 
@@ -88,4 +89,29 @@ test("ctrPercent: one decimal, zero views is 0 (never NaN)", () => {
 test("toStatsExportRow: sponsor, title, views, clicks, ctr in order", () => {
   const row = toStatsExportRow({ adId: "1", sponsorName: "شركة الخليج", title: "عرض الصيف", views: 100, clicks: 12, ctr: 12 });
   assert.deepEqual(row, ["شركة الخليج", "عرض الصيف", 100, 12, 12]);
+});
+
+const sample = [
+  { adId: "1", sponsorName: "شركة الخليج", title: "أ", views: 10, clicks: 1, ctr: 10 },
+  { adId: "2", sponsorName: "إطارات النور", title: "ب", views: 5, clicks: 0, ctr: 0 },
+  { adId: "3", sponsorName: "شركة الخليج", title: "ج", views: 3, clicks: 1, ctr: 33.3 },
+];
+
+test("sponsorNames: distinct, Arabic-sorted", () => {
+  assert.deepEqual(sponsorNames(sample), ["إطارات النور", "شركة الخليج"]);
+});
+
+test("filterBySponsor: all keeps every ad; one sponsor keeps all of that sponsor’s ads", () => {
+  assert.equal(filterBySponsor(sample, ALL_SPONSORS).length, 3);
+  assert.deepEqual(filterBySponsor(sample, "شركة الخليج").map((t) => t.adId), ["1", "3"]);
+  assert.deepEqual(filterBySponsor(sample, "غير موجود"), []);
+});
+
+test("statsExportFileName: all keeps the original name; a sponsor gets its own", () => {
+  assert.equal(statsExportFileName(null, "2026-10-01", "2026-10-04"), "fuelos-ads-stats_2026-10-01_to_2026-10-04.xlsx");
+  assert.equal(statsExportFileName("شركة الخليج", "2026-10-01", "2026-10-04"), "fuelos-ads_شركة الخليج_2026-10-01_2026-10-04.xlsx");
+});
+
+test("statsExportFileName: characters Windows forbids in file names are replaced", () => {
+  assert.equal(statsExportFileName("a/b:c*", "2026-10-01", "2026-10-04"), "fuelos-ads_a-b-c-_2026-10-01_2026-10-04.xlsx");
 });
