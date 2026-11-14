@@ -473,10 +473,10 @@ create temp table _st_none as select :'st_none'::jsonb as j;
 create temp table _st_edge as select :'st_edge'::jsonb as j;
 create temp table _st_old as select :'st_old'::jsonb as j;
 select pg_temp.ok((select (select count(*) from jsonb_object_keys(j)) = 2 and jsonb_typeof(j->'rows') = 'array' and jsonb_typeof(j->'totals') = 'array' from _st), 'ad_stats returns exactly {rows, totals}');
-select pg_temp.ok((select bool_and((select count(*) from jsonb_object_keys(r)) = 6 and r ?& array['ad_id', 'sponsor_name', 'title', 'day', 'views', 'clicks']) from _st, jsonb_array_elements(j->'rows') r),
-                  'every stats row has exactly ad_id, sponsor_name, title, day, views, clicks');
-select pg_temp.ok((select bool_and((select count(*) from jsonb_object_keys(t)) = 6 and t ?& array['ad_id', 'sponsor_name', 'title', 'views', 'clicks', 'ctr']) from _st, jsonb_array_elements(j->'totals') t),
-                  'every totals row has exactly ad_id, sponsor_name, title, views, clicks, ctr');
+select pg_temp.ok((select bool_and((select count(*) from jsonb_object_keys(r)) = 7 and r ?& array['ad_id', 'sponsor_name', 'title', 'day', 'views', 'clicks', 'archived']) from _st, jsonb_array_elements(j->'rows') r),
+                  'every stats row has exactly ad_id, sponsor_name, title, day, views, clicks, archived');
+select pg_temp.ok((select bool_and((select count(*) from jsonb_object_keys(t)) = 7 and t ?& array['ad_id', 'sponsor_name', 'title', 'views', 'clicks', 'ctr', 'archived']) from _st, jsonb_array_elements(j->'totals') t),
+                  'every totals row has exactly ad_id, sponsor_name, title, views, clicks, ctr, archived');
 select pg_temp.ok((select jsonb_array_length(j->'rows') = 7 and jsonb_array_length(j->'totals') = 5 from _st), 'the 30-day period has 7 per-day rows and 5 ad totals');
 select pg_temp.ok((select (r->>'views')::int = 2 and (r->>'clicks')::int = 1 and r->>'sponsor_name' = 'P-run-a' and r->>'title' = 'run a'
                      from _st, jsonb_array_elements(j->'rows') r where r->>'ad_id' = :'p_a' and r->>'day' = (:'today'::date - 2)::text),
@@ -494,6 +494,10 @@ select pg_temp.ok((select (t->>'views')::int = 0 and (t->>'clicks')::int = 1 and
                      from _st, jsonb_array_elements(j->'totals') t where t->>'ad_id' = :'p_end'), 'ctr is 0 when there are no views (no division by zero)');
 select pg_temp.ok((select (t->>'views')::int = 1 and (t->>'clicks')::int = 1 and (t->>'ctr')::numeric = 100.0 and t->>'sponsor_name' = 'P-arch'
                      from _st, jsonb_array_elements(j->'totals') t where t->>'ad_id' = :'p_arc'), 'an archived ad''s history is included (ctr 100.0)');
+select pg_temp.ok((select (t->>'archived')::boolean from _st, jsonb_array_elements(j->'totals') t where t->>'ad_id' = :'p_arc'), 'totals: an archived ad is flagged archived = true');
+select pg_temp.ok((select not (t->>'archived')::boolean from _st, jsonb_array_elements(j->'totals') t where t->>'ad_id' = :'p_a'), 'totals: a live ad is flagged archived = false');
+select pg_temp.ok((select bool_and((r->>'archived')::boolean) from _st, jsonb_array_elements(j->'rows') r where r->>'ad_id' = :'p_arc'), 'rows: every per-day row of an archived ad is flagged archived = true');
+select pg_temp.ok((select bool_and(not (r->>'archived')::boolean) from _st, jsonb_array_elements(j->'rows') r where r->>'ad_id' = :'p_a'), 'rows: the per-day rows of a live ad are flagged archived = false');
 select pg_temp.ok((select count(*) = 0 from _st, jsonb_array_elements(j->'rows') r where r->>'day' < (:'today'::date - 30)::text), 'the 500-day-old event is outside the period');
 select pg_temp.ok((select (select sum((r->>'views')::int) from jsonb_array_elements(j->'rows') r) = (select sum((t->>'views')::int) from jsonb_array_elements(j->'totals') t)
                           and (select sum((r->>'clicks')::int) from jsonb_array_elements(j->'rows') r) = (select sum((t->>'clicks')::int) from jsonb_array_elements(j->'totals') t)
