@@ -3,13 +3,14 @@
 // can't set a satisfaction rating — no such column exists yet (docs/briefs/04h-cowork-complaint-rating.md).
 import { errorMessage } from "@fuelos/core";
 import type { ComplaintKind, ComplaintStatus } from "./complaint-rules";
+import { pickLastMessages, type LastMessage, type LastMessageRow } from "./complaints-rules";
 import { supabase } from "./supabase";
 
 const signal = () => AbortSignal.timeout(20_000);
 
 export type ComplaintRow = {
   id: string; kind: ComplaintKind; subject: string; status: ComplaintStatus; stationName: string;
-  invoiceNumber: number | null; createdAt: string; resolvedAt: string | null;
+  invoiceNumber: number | null; createdAt: string; resolvedAt: string | null; lastMessage: LastMessage | null;
 };
 export type ComplaintsData = { complaints: ComplaintRow[]; fetchedAt: string };
 
@@ -19,11 +20,13 @@ export async function loadComplaints(customerId: string): Promise<ComplaintsData
     .eq("customer_id", customerId).order("created_at", { ascending: false }).abortSignal(signal());
   if (complaints.error) throw new Error(complaints.error.message);
 
+  const ids = (complaints.data ?? []).map((c) => c.id as string);
   const stationIds = [...new Set((complaints.data ?? []).map((c) => c.station_id as string))];
   const invoiceIds = (complaints.data ?? []).map((c) => c.invoice_id as string).filter(Boolean);
-  const [stationsRes, invoicesRes] = await Promise.all([
+  const [stationsRes, invoicesRes, lastMessageByComplaint] = await Promise.all([
     stationIds.length === 0 ? { data: [], error: null } : sb.from("public_station_prices").select("station_id, station_name").in("station_id", stationIds).abortSignal(signal()),
     invoiceIds.length === 0 ? { data: [], error: null } : sb.from("invoices").select("id, number").in("id", invoiceIds).abortSignal(signal()),
+    loadLastMessages(sb, ids),
   ]);
   if (stationsRes.error) throw new Error(stationsRes.error.message);
   if (invoicesRes.error) throw new Error(invoicesRes.error.message);
@@ -36,10 +39,25 @@ export async function loadComplaints(customerId: string): Promise<ComplaintsData
     complaints: (complaints.data ?? []).map((c) => ({
       id: c.id, kind: c.kind as ComplaintKind, subject: c.subject, status: c.status as ComplaintStatus,
       stationName: stationName.get(c.station_id as string) ?? "", invoiceNumber: c.invoice_id ? invoiceNumber.get(c.invoice_id as string) ?? null : null,
-      createdAt: c.created_at, resolvedAt: c.resolved_at,
+      createdAt: c.created_at, resolvedAt: c.resolved_at, lastMessage: lastMessageByComplaint.get(c.id as string) ?? null,
     })),
     fetchedAt: new Date().toISOString(),
   };
+}
+
+// A failed `complaint_messages` query must not fail the whole page — the list falls back to showing
+// `subject` (see the card rendering in the complaints page) for every complaint when this happens.
+async function loadLastMessages(sb: ReturnType<typeof supabase>, ids: string[]): Promise<Map<string, LastMessage | null>> {
+  if (ids.length === 0) return new Map();
+  try {
+    const { data, error } = await sb.from("complaint_messages").select("complaint_id, author_side, body, created_at")
+      .in("complaint_id", ids).order("created_at", { ascending: false }).abortSignal(signal());
+    if (error) return new Map();
+    const rows: LastMessageRow[] = (data ?? []).map((m) => ({ complaintId: m.complaint_id as string, authorSide: m.author_side, body: m.body, createdAt: m.created_at }));
+    return pickLastMessages(rows, ids);
+  } catch {
+    return new Map();
+  }
 }
 
 export type Message = { id: number; authorSide: "customer" | "station" | "platform"; body: string; createdAt: string };

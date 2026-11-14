@@ -76,8 +76,10 @@ function ComplaintsTab() {
                         <StatusBadge tone={c.kind === "price_report" ? "warning" : "primary"}>{KIND_LABEL[c.kind]}</StatusBadge>
                         {c.invoiceNumber && <span className="text-body-small-12 text-text-secondary">فاتورة INV-{c.invoiceNumber}</span>}
                       </div>
-                      <p className="line-clamp-2 text-body-regular-14 text-text-secondary">{c.subject}</p>
-                      <p className="text-body-small-12 text-text-secondary">{formatDay(c.createdAt)}</p>
+                      <p className="line-clamp-2 text-body-regular-14 text-text-secondary">
+                        {c.lastMessage ? `${c.lastMessage.authorSide === "customer" ? "أنت: " : "المحطة: "}${c.lastMessage.body}` : c.subject}
+                      </p>
+                      <p className="text-body-small-12 text-text-secondary">{formatDay(c.lastMessage ? c.lastMessage.createdAt : c.createdAt)}</p>
                     </button>
                   </li>
                 );
