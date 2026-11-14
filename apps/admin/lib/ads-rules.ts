@@ -117,12 +117,25 @@ export function ctrPercent(views: number, clicks: number): number {
 }
 
 // ---------- stats export (same shape style as lib/sales-rules.ts's A5 export) ----------
-export type StatTotal = { adId: string; sponsorName: string; title: string; views: number; clicks: number; ctr: number };
+export type StatTotal = { adId: string; sponsorName: string; title: string; views: number; clicks: number; ctr: number; archived: boolean };
 export type ExportCell = string | number;
-export const STATS_HEADERS = ["الراعي", "العنوان", "المشاهدات", "النقرات", "نسبة النقر %"] as const;
+export const STATS_HEADERS = ["الراعي", "العنوان", "المشاهدات", "النقرات", "نسبة النقر %", "الحالة"] as const;
+
+/** The export's own last column — «مؤرشف» or «يعمل», driven only by ad_stats' `archived` flag (not the full
+ * scheduled/running/paused/ended status, which this report doesn't carry). */
+export function archivedLabel(archived: boolean): string {
+  return archived ? "مؤرشف" : "يعمل";
+}
+
+/** ads-data.ts's own reading of ad_stats' `archived` field, kept here (rather than inline there) so it's
+ * unit-testable without pulling in @fuelos/core: an older response, from before the 20261111000100 migration
+ * added the field, simply omits it — that must read as "not archived", never throw or stay undefined. */
+export function readArchived(x: { archived?: boolean }): boolean {
+  return Boolean(x.archived);
+}
 
 export function toStatsExportRow(t: StatTotal): ExportCell[] {
-  return [t.sponsorName, t.title, t.views, t.clicks, t.ctr];
+  return [t.sponsorName, t.title, t.views, t.clicks, t.ctr, archivedLabel(t.archived)];
 }
 
 export type StatSortKey = "sponsorName" | "title" | "views" | "clicks" | "ctr";

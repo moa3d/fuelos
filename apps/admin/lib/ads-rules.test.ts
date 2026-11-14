@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  adImagePath, ctrPercent, endOfDayLocal, extensionFor, filterBySponsor, reorderChanges, sortStatTotals, sponsorNames,
+  adImagePath, archivedLabel, ctrPercent, endOfDayLocal, extensionFor, filterBySponsor, readArchived, reorderChanges, sortStatTotals, sponsorNames,
   startOfDayLocal, statsExportFileName, statusBadge, ALL_SPONSORS,
   toDateInputValue, toStatsExportRow, validateImageFile, validateLink, whatsappLink,
 } from "./ads-rules.ts";
@@ -70,8 +70,8 @@ test("reorderChanges: first ▲ and last ▼ are no-ops; untouched ads are not r
 
 test("sortStatTotals: numeric and Arabic-aware text sort, either direction", () => {
   const rows = [
-    { adId: "1", sponsorName: "ب", title: "ب", views: 10, clicks: 1, ctr: 10 },
-    { adId: "2", sponsorName: "أ", title: "أ", views: 50, clicks: 5, ctr: 10 },
+    { adId: "1", sponsorName: "ب", title: "ب", views: 10, clicks: 1, ctr: 10, archived: false },
+    { adId: "2", sponsorName: "أ", title: "أ", views: 50, clicks: 5, ctr: 10, archived: false },
   ];
   assert.deepEqual(sortStatTotals(rows, "views", "asc").map((r) => r.adId), ["1", "2"]);
   assert.deepEqual(sortStatTotals(rows, "views", "desc").map((r) => r.adId), ["2", "1"]);
@@ -86,15 +86,34 @@ test("ctrPercent: one decimal, zero views is 0 (never NaN)", () => {
   assert.equal(ctrPercent(1, 1), 100);
 });
 
-test("toStatsExportRow: sponsor, title, views, clicks, ctr in order", () => {
-  const row = toStatsExportRow({ adId: "1", sponsorName: "شركة الخليج", title: "عرض الصيف", views: 100, clicks: 12, ctr: 12 });
-  assert.deepEqual(row, ["شركة الخليج", "عرض الصيف", 100, 12, 12]);
+test("archivedLabel: مؤرشف or يعمل", () => {
+  assert.equal(archivedLabel(true), "مؤرشف");
+  assert.equal(archivedLabel(false), "يعمل");
+});
+
+test("readArchived: archived: true on the ad_stats response is read through", () => {
+  assert.equal(readArchived({ archived: true }), true);
+});
+
+test("readArchived: archived: false is read through", () => {
+  assert.equal(readArchived({ archived: false }), false);
+});
+
+test("readArchived: an older response that omits the field entirely reads as false, not undefined", () => {
+  assert.equal(readArchived({}), false);
+});
+
+test("toStatsExportRow: sponsor, title, views, clicks, ctr, الحالة (last) in order", () => {
+  const running = toStatsExportRow({ adId: "1", sponsorName: "شركة الخليج", title: "عرض الصيف", views: 100, clicks: 12, ctr: 12, archived: false });
+  assert.deepEqual(running, ["شركة الخليج", "عرض الصيف", 100, 12, 12, "يعمل"]);
+  const archived = toStatsExportRow({ adId: "2", sponsorName: "شركة الخليج", title: "عرض الصيف", views: 100, clicks: 12, ctr: 12, archived: true });
+  assert.deepEqual(archived, ["شركة الخليج", "عرض الصيف", 100, 12, 12, "مؤرشف"]);
 });
 
 const sample = [
-  { adId: "1", sponsorName: "شركة الخليج", title: "أ", views: 10, clicks: 1, ctr: 10 },
-  { adId: "2", sponsorName: "إطارات النور", title: "ب", views: 5, clicks: 0, ctr: 0 },
-  { adId: "3", sponsorName: "شركة الخليج", title: "ج", views: 3, clicks: 1, ctr: 33.3 },
+  { adId: "1", sponsorName: "شركة الخليج", title: "أ", views: 10, clicks: 1, ctr: 10, archived: false },
+  { adId: "2", sponsorName: "إطارات النور", title: "ب", views: 5, clicks: 0, ctr: 0, archived: false },
+  { adId: "3", sponsorName: "شركة الخليج", title: "ج", views: 3, clicks: 1, ctr: 33.3, archived: true },
 ];
 
 test("sponsorNames: distinct, Arabic-sorted", () => {

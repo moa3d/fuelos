@@ -1,7 +1,7 @@
 // الإعلانات (docs/briefs/10a; spec §4): every write and every aggregate read goes through Cowork's RPCs —
 // ads/ad_events have RLS on with no policies at all, so there's nothing for this file to read directly.
 import { errorMessage } from "@fuelos/core";
-import type { AdStatus } from "./ads-rules.ts";
+import { readArchived, type AdStatus } from "./ads-rules.ts";
 import { supabase } from "./supabase.ts";
 
 const signal = () => AbortSignal.timeout(30_000);
@@ -105,19 +105,31 @@ export async function archiveAd(id: string): Promise<void> {
   if (error) throw new Error(toMessage(error, "تعذّر أرشفة الإعلان"));
 }
 
-export type StatRow = { adId: string; sponsorName: string; title: string; day: string; views: number; clicks: number };
-export type StatTotal = { adId: string; sponsorName: string; title: string; views: number; clicks: number; ctr: number };
+// `archived` reflects ads.archived_at is not null at the time of the event, kept deliberately (unlike admin_ads,
+// which hides archived ads) so a sponsor's old archived ad and its same-titled replacement don't look identical
+// in the report. Read defensively: an older ad_stats response (before the 20261111000100 migration) simply
+// omits the field, which must read as "not archived" rather than break the page.
+export type StatRow = { adId: string; sponsorName: string; title: string; day: string; views: number; clicks: number; archived: boolean };
+export type StatTotal = { adId: string; sponsorName: string; title: string; views: number; clicks: number; ctr: number; archived: boolean };
 export type AdStats = { rows: StatRow[]; totals: StatTotal[] };
 
-type RawStatRow = { ad_id: string; sponsor_name: string; title: string; day: string; views: Num; clicks: Num };
-type RawStatTotal = { ad_id: string; sponsor_name: string; title: string; views: Num; clicks: Num; ctr: Num };
+type RawStatRow = { ad_id: string; sponsor_name: string; title: string; day: string; views: Num; clicks: Num; archived?: boolean };
+type RawStatTotal = { ad_id: string; sponsor_name: string; title: string; views: Num; clicks: Num; ctr: Num; archived?: boolean };
+
+function toStatRow(x: RawStatRow): StatRow {
+  return { adId: x.ad_id, sponsorName: x.sponsor_name, title: x.title, day: x.day, views: Number(x.views), clicks: Number(x.clicks), archived: readArchived(x) };
+}
+
+function toStatTotal(x: RawStatTotal): StatTotal {
+  return { adId: x.ad_id, sponsorName: x.sponsor_name, title: x.title, views: Number(x.views), clicks: Number(x.clicks), ctr: Number(x.ctr), archived: readArchived(x) };
+}
 
 export async function loadAdStats(from: string, to: string): Promise<AdStats> {
   const { data, error } = await supabase().rpc("ad_stats", { p_from: from, p_to: to }).abortSignal(signal());
   if (error) throw new Error(toMessage(error, "تعذّر تحميل الإحصائيات"));
   const r = data as { rows: RawStatRow[]; totals: RawStatTotal[] };
   return {
-    rows: (r.rows ?? []).map((x) => ({ adId: x.ad_id, sponsorName: x.sponsor_name, title: x.title, day: x.day, views: Number(x.views), clicks: Number(x.clicks) })),
-    totals: (r.totals ?? []).map((x) => ({ adId: x.ad_id, sponsorName: x.sponsor_name, title: x.title, views: Number(x.views), clicks: Number(x.clicks), ctr: Number(x.ctr) })),
+    rows: (r.rows ?? []).map(toStatRow),
+    totals: (r.totals ?? []).map(toStatTotal),
   };
 }
