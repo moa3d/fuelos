@@ -60,6 +60,33 @@ async function loadLastMessages(sb: ReturnType<typeof supabase>, ids: string[]):
   }
 }
 
+// For the real `/complaints/[id]` route (no in-memory row from the list). RLS already scopes `complaints` to
+// the caller, so the `.eq("customer_id", ...)` here is belt-and-suspenders; a missing/foreign row and a
+// genuinely nonexistent id both resolve to `null` → the page's "لم نجد هذه الشكوى" state. No `lastMessage`
+// needed here — the conversation itself comes from `loadComplaintMessages`.
+export async function loadComplaint(customerId: string, id: string): Promise<ComplaintRow | null> {
+  const sb = supabase();
+  const complaint = await sb.from("complaints").select("id, station_id, invoice_id, kind, subject, status, created_at, resolved_at")
+    .eq("customer_id", customerId).eq("id", id).abortSignal(signal()).maybeSingle();
+  if (complaint.error) throw new Error(complaint.error.message);
+  if (!complaint.data) return null;
+  const c = complaint.data;
+
+  const [stationRes, invoiceRes] = await Promise.all([
+    sb.from("public_station_prices").select("station_id, station_name").eq("station_id", c.station_id as string).limit(1).abortSignal(signal()),
+    c.invoice_id ? sb.from("invoices").select("id, number").eq("id", c.invoice_id as string).abortSignal(signal()) : Promise.resolve({ data: [] as { id: string; number: number }[], error: null }),
+  ]);
+  if (stationRes.error) throw new Error(stationRes.error.message);
+  if (invoiceRes.error) throw new Error(invoiceRes.error.message);
+
+  return {
+    id: c.id, kind: c.kind as ComplaintKind, subject: c.subject, status: c.status as ComplaintStatus,
+    stationName: stationRes.data?.[0]?.station_name ?? "",
+    invoiceNumber: c.invoice_id ? invoiceRes.data?.[0]?.number ?? null : null,
+    createdAt: c.created_at, resolvedAt: c.resolved_at, lastMessage: null,
+  };
+}
+
 export type Message = { id: number; authorSide: "customer" | "station" | "platform"; body: string; createdAt: string };
 
 export async function loadComplaintMessages(complaintId: string): Promise<Message[]> {
