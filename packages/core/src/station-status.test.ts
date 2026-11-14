@@ -6,12 +6,11 @@ import {
   crowdBadge,
   CROWD_FRESH_MS,
   OPEN_FRESH_MS,
-  type CrowdLevel,
 } from "./station-status.ts";
 
 const NOW = Date.parse("2026-11-11T12:00:00Z");
 
-test("manual press 1 hour old wins → isOpen is that value, openSource: manual", () => {
+test("manual press 1 hour old wins → isOpen is that value, openSource: manual, openSetAt is set", () => {
   const oneHourAgo = new Date(NOW - 60 * 60_000).toISOString();
   const result = stationStatusView(
     { is_open: true, open_set_at: oneHourAgo, crowd: null, crowd_set_at: null },
@@ -19,6 +18,7 @@ test("manual press 1 hour old wins → isOpen is that value, openSource: manual"
   );
   assert.equal(result.isOpen, true);
   assert.equal(result.openSource, "manual");
+  assert.equal(result.openSetAt, oneHourAgo);
 });
 
 test("is_open: false 1 hour old with has_open_shift: true → isOpen === false (manual beats shift)", () => {
@@ -37,7 +37,7 @@ test("is_open: false 1 hour old with has_open_shift: true → isOpen === false (
   assert.equal(result.openSource, "manual");
 });
 
-test("manual press 13 hours old with has_open_shift: true → isOpen === true, openSource: shift", () => {
+test("manual press 13 hours old with has_open_shift: true → isOpen === true, openSource: shift, openSetAt === null", () => {
   const thirteenHoursAgo = new Date(NOW - 13 * 60 * 60_000).toISOString();
   const result = stationStatusView(
     {
@@ -51,9 +51,10 @@ test("manual press 13 hours old with has_open_shift: true → isOpen === true, o
   );
   assert.equal(result.isOpen, true);
   assert.equal(result.openSource, "shift");
+  assert.equal(result.openSetAt, null);
 });
 
-test("manual press 13 hours old with no open shift → isOpen === null, openSource === null", () => {
+test("manual press 13 hours old with no open shift → isOpen === null, openSource === null, openSetAt === null", () => {
   const thirteenHoursAgo = new Date(NOW - 13 * 60 * 60_000).toISOString();
   const result = stationStatusView(
     {
@@ -67,9 +68,10 @@ test("manual press 13 hours old with no open shift → isOpen === null, openSour
   );
   assert.equal(result.isOpen, null);
   assert.equal(result.openSource, null);
+  assert.equal(result.openSetAt, null);
 });
 
-test("never pressed (is_open: null) with no shift → isOpen === null", () => {
+test("never pressed (is_open: null) with no shift → isOpen === null, openSetAt === null", () => {
   const result = stationStatusView(
     {
       is_open: null,
@@ -82,6 +84,7 @@ test("never pressed (is_open: null) with no shift → isOpen === null", () => {
   );
   assert.equal(result.isOpen, null);
   assert.equal(result.openSource, null);
+  assert.equal(result.openSetAt, null);
 });
 
 test("crowd 89 minutes old → returned, crowdStale === false", () => {

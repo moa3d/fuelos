@@ -28,7 +28,7 @@ export function stationStatusView(row: StationStatusRow, now?: number): StationS
   // Determine open status and source
   let isOpen: boolean | null = null;
   let openSource: OpenSource | null = null;
-  let openSetAt: string | null = row.open_set_at;
+  let openSetAt: string | null = null;
 
   if (row.open_set_at !== null && row.is_open !== null) {
     const age = timestamp - Date.parse(row.open_set_at);
@@ -36,6 +36,7 @@ export function stationStatusView(row: StationStatusRow, now?: number): StationS
       // Manual press is fresh
       isOpen = row.is_open;
       openSource = "manual";
+      openSetAt = row.open_set_at;
     } else {
       // Manual press is stale, check for shift
       if (row.has_open_shift) {
@@ -49,8 +50,8 @@ export function stationStatusView(row: StationStatusRow, now?: number): StationS
   }
 
   // Determine crowd status and staleness
+  const crowdSetAt = row.crowd_set_at;
   let crowd: CrowdLevel | null = null;
-  let crowdSetAt: string | null = row.crowd_set_at;
   let crowdStale = false;
 
   if (row.crowd_set_at !== null && row.crowd !== null) {
