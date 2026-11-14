@@ -453,7 +453,12 @@ function AdsStats() {
               {shown.map((t) => (
                 <tr key={t.adId}>
                   <td className="p-3 text-body-strong-14">{t.sponsorName}</td>
-                  <td className="p-3 text-text-secondary">{t.title}</td>
+                  <td className="p-3 text-text-secondary">
+                    <span className="flex items-center gap-2">
+                      {t.title}
+                      {t.archived && <StatusBadge tone="neutral">مؤرشف</StatusBadge>}
+                    </span>
+                  </td>
                   <td className="p-3">{formatNumber(t.views, 0)}</td>
                   <td className="p-3">{formatNumber(t.clicks, 0)}</td>
                   <td className="p-3">{formatNumber(t.ctr, 1)}%</td>

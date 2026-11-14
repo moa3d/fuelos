@@ -39,7 +39,8 @@ export async function exportAdsStatsToExcel(totals: StatTotal[], meta: AdsExport
     sheet.addRow(toStatsExportRow(t));
     totalViews += t.views; totalClicks += t.clicks;
   }
-  const totalsRow = sheet.addRow(["الإجمالي", "", totalViews, totalClicks, ctrPercent(totalViews, totalClicks)]);
+  // the grand-totals row has no single archived/running state of its own, so its «الحالة» cell is left blank
+  const totalsRow = sheet.addRow(["الإجمالي", "", totalViews, totalClicks, ctrPercent(totalViews, totalClicks), ""]);
   totalsRow.font = { bold: true };
 
   sheet.columns.forEach((col, i) => {
