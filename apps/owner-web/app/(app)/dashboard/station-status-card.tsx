@@ -76,7 +76,12 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
     return <section aria-busy className="h-40 animate-pulse rounded-lg bg-surface-muted" />;
   }
 
-  const disabled = saving;
+  // set_station_status() allows owner, shift_manager and attendant (RPC's require_role) — this app's
+  // roles are owner / accountant / shift_manager, so the accountant is the one who is not allowed.
+  // "Don't hide, explain" (fuelos-permissions): disable + say who can, same as ledger/page.tsx:90.
+  const canChangeStatus = current.role !== "accountant";
+  const changeDisabledTitle = canChangeStatus ? undefined : "تغيير حالة المحطة متاح لصاحب المحطة ومدير المناوبة فقط";
+  const disabled = saving || !canChangeStatus;
 
   return (
     <section className="flex flex-col gap-3 rounded-lg bg-surface-card p-4 shadow-card">
@@ -88,6 +93,7 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
         variant={view.isOpen === true ? "action" : "secondary"}
         block
         disabled={disabled}
+        title={changeDisabledTitle}
         className="min-h-12"
         onClick={() => void apply({ open: view.isOpen !== true })}
       >
@@ -112,6 +118,7 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
               variant={active ? "primary" : "secondary"}
               block
               disabled={disabled}
+              title={changeDisabledTitle}
               className="min-h-11"
               onClick={() => void apply({ crowd: level })}
             >
@@ -122,14 +129,14 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
       </div>
 
       {view.crowdStale ? (
-        <p className="text-body-small-12 text-status-warning-700">لم يُحدَّث الزحام بعد — حدّثه ليراه الزبائن</p>
+        <p className="text-body-small-12 text-status-warning-700">حدّث الزحام ليراه الزبائن</p>
       ) : (
-        <p className="text-body-small-12 text-text-secondary">آخر تحديث للزحام {timeAgo(view.crowdSetAt!)}</p>
+        <p className="text-body-small-12 text-text-secondary">آخر تحديث {timeAgo(view.crowdSetAt!)}</p>
       )}
 
       {saveError && (
         <AlertBanner tone="danger" title={saveError}
-          action={<Button variant="secondary" onClick={() => void apply(lastPatch.current ?? {})}>إعادة المحاولة</Button>}>
+          action={<Button variant="secondary" onClick={() => void apply(lastPatch.current!)}>إعادة المحاولة</Button>}>
           تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.
         </AlertBanner>
       )}
