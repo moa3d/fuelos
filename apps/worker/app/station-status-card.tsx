@@ -3,7 +3,7 @@
 // Status writes are online-only: setStationStatus() calls the RPC directly, never the offline outbox
 // (fuelos-offline-sync — a crowd reading that reaches customers an hour late is worse than none).
 import { crowdBadge, openBadge, type CrowdLevel, type StationStatusView } from "@fuelos/core";
-import { cx } from "@fuelos/ui";
+import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import { useEffect, useRef, useState } from "react";
 import { loadStationStatus, setStationStatus, type StatusOutcome, type StatusPatch } from "@/lib/station-status";
 import { timeAgo } from "@/lib/time-ago";
@@ -21,12 +21,19 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
 
+  async function load() {
+    const v = await loadStationStatus(stationId).catch(() => undefined);
+    if (v) { setView(v); setLoadError(undefined); }
+    else setLoadError("تعذّر تحميل حالة المحطة");
+  }
+
+  // Effects call setState only from inside a .then()/.catch() callback, never directly in the effect
+  // body (react-hooks/set-state-in-effect) — `load()` above is the same operation, reused by the retry
+  // button below, which is a plain event handler and not subject to that rule.
   useEffect(() => {
-    let alive = true;
     loadStationStatus(stationId)
-      .then((v) => { if (alive) { setView(v); setLoadError(undefined); } })
-      .catch(() => { if (alive) setLoadError("تعذّر تحميل حالة المحطة"); });
-    return () => { alive = false; };
+      .then((v) => { setView(v); setLoadError(undefined); })
+      .catch(() => setLoadError("تعذّر تحميل حالة المحطة"));
   }, [stationId]);
 
   async function apply(patch: StatusPatch) {
@@ -53,9 +60,10 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
 
   if (loadError) {
     return (
-      <section className="rounded-lg bg-surface-card p-4 shadow-card">
-        <p className="text-body-small-12 text-status-danger-700">{loadError}</p>
-      </section>
+      <AlertBanner tone="danger" title={loadError}
+        action={<Button variant="secondary" onClick={() => void load()}>إعادة المحاولة</Button>}>
+        حاول مرة أخرى، وإن تكرر الخطأ فاتصل بالمدير.
+      </AlertBanner>
     );
   }
 
@@ -64,24 +72,22 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
   }
 
   const disabled = !online || saving;
-  const openTone = openBadge(view.isOpen).tone;
 
   return (
     <section className="flex flex-col gap-3 rounded-lg bg-surface-card p-4 shadow-card">
       <h2 className="text-body-strong-14 text-text-secondary">حالة المحطة</h2>
 
-      <button
+      <Button
         type="button"
         aria-pressed={view.isOpen === true}
+        variant={view.isOpen === true ? "action" : "secondary"}
+        block
         disabled={disabled}
+        className="min-h-12"
         onClick={() => void apply({ open: view.isOpen !== true })}
-        className={cx(
-          "h-12 rounded-md text-body-strong-14 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-          TONE_BORDER[openTone],
-        )}
       >
-        {view.isOpen === true ? "المحطة مفتوحة" : view.isOpen === false ? "المحطة مغلقة" : "حالة الفتح غير معروفة"}
-      </button>
+        {`المحطة ${openBadge(view.isOpen).label}`}
+      </Button>
       {view.isOpen === true && view.openSource === "shift" && (
         <p className="text-label-11 text-text-muted">مفتوحة — مناوبة جارية</p>
       )}
@@ -91,20 +97,19 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
           const badge = crowdBadge(level);
           const active = view.crowd === level;
           return (
-            <button
+            <Button
               key={level}
               type="button"
               role="radio"
               aria-checked={active}
+              variant={active ? "primary" : "secondary"}
+              block
               disabled={disabled}
+              className="min-h-11"
               onClick={() => void apply({ crowd: level })}
-              className={cx(
-                "h-11 rounded-md text-body-strong-14 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                active ? TONE_BORDER[badge.tone] : "border border-border-default bg-surface-card text-text-secondary",
-              )}
             >
-              {badge.label}
-            </button>
+              <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+            </Button>
           );
         })}
       </div>
@@ -121,10 +126,3 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
     </section>
   );
 }
-
-const TONE_BORDER: Record<"success" | "warning" | "danger" | "neutral", string> = {
-  success: "border-2 border-brand-action bg-brand-action-50 text-brand-action-700",
-  warning: "border-2 border-status-warning bg-status-warning-50 text-status-warning-700",
-  danger: "border-2 border-status-danger bg-status-danger-50 text-status-danger-700",
-  neutral: "border border-border-default bg-surface-card text-text-secondary",
-};
