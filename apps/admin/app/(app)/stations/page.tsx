@@ -3,12 +3,14 @@
 // everything). A simple, real list first: name, city, status, plan, active users and whether an owner has set
 // its map location yet. Row actions and the full A2 setup wizard (tanks/pumps/readiness checklist) are a
 // bigger slice for later — this only reads, it doesn't manage a station.
-import { formatDay, formatNumber } from "@fuelos/core";
+import { formatDay, formatNumber, openBadge, crowdBadge, type StationStatusView } from "@fuelos/core";
 import { AlertBanner, Button, StatusBadge } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { loadStations, type StationRow } from "@/lib/stations-data";
+import { loadLiveStatuses } from "@/lib/station-status";
 import { matchesSearch, stationBadge, type StationStatus } from "@/lib/stations-rules";
+import { timeAgo } from "@/lib/time-ago";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: StationRow[] };
 type Filter = "all" | StationStatus;
@@ -22,9 +24,19 @@ export default function StationsPage() {
   const [tick, setTick] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
+  const [liveStatuses, setLiveStatuses] = useState<Map<string, StationStatusView>>(new Map());
+  const [now] = useState(() => Date.now());
 
   useEffect(() => {
-    loadStations().then((data) => setLoad({ status: "ready", data }), () => setLoad({ status: "error" }));
+    loadStations().then(
+      (data) => {
+        setLoad({ status: "ready", data });
+        loadLiveStatuses(data.map((s) => s.id))
+          .then(setLiveStatuses)
+          .catch((err) => { console.error("loadLiveStatuses:", err); });
+      },
+      () => setLoad({ status: "error" }),
+    );
   }, [tick]);
 
   function refresh() {
@@ -78,6 +90,7 @@ export default function StationsPage() {
                   <th className="p-3 text-start font-normal">المحطة</th>
                   <th className="p-3 text-start font-normal">المدينة</th>
                   <th className="p-3 text-start font-normal">الحالة</th>
+                  <th className="p-3 text-start font-normal">التشغيل</th>
                   <th className="p-3 text-start font-normal">الخطة</th>
                   <th className="p-3 text-start font-normal">مستخدمون نشطون</th>
                   <th className="p-3 text-start font-normal">تاريخ الانضمام</th>
@@ -87,11 +100,30 @@ export default function StationsPage() {
               <tbody className="divide-y divide-border-default">
                 {shown.map((s) => {
                   const badge = stationBadge(s.status);
+                  const live = liveStatuses.get(s.id);
+                  const openB = live ? openBadge(live.isOpen) : null;
+                  const crowdB = live?.crowd != null ? crowdBadge(live.crowd) : null;
+                  const newerTimestamp = live
+                    ? ([live.openSetAt, live.crowdSetAt].filter((t): t is string => t !== null).sort().at(-1) ?? null)
+                    : null;
                   return (
                     <tr key={s.id}>
                       <td className="p-3 text-body-strong-14"><Link href={`/stations/${s.id}`} className="hover:underline">{s.name}</Link></td>
                       <td className="p-3 text-text-secondary">{s.city ?? "—"}</td>
                       <td className="p-3"><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
+                      {live && openB ? (
+                        <td className="p-3">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <StatusBadge tone={openB.tone}>{openB.label}</StatusBadge>
+                              {crowdB && <StatusBadge tone={crowdB.tone}>{crowdB.label}</StatusBadge>}
+                            </div>
+                            {newerTimestamp && <span className="text-body-small-12 text-text-secondary">{timeAgo(newerTimestamp, now)}</span>}
+                          </div>
+                        </td>
+                      ) : (
+                        <td className="p-3 text-text-secondary text-body-small-12">لم تُحدَّث بعد</td>
+                      )}
                       <td className="p-3 text-text-secondary">{s.planName ?? "—"}</td>
                       <td className="p-3">{formatNumber(s.activeUsers, 0)}</td>
                       <td className="p-3 text-text-secondary">{formatDay(s.createdAt)}</td>
