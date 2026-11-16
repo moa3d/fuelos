@@ -5,7 +5,7 @@
 // doesn't have yet — omitted rather than faked, same principle as C1. «السعر غير صحيح؟» reuses the existing
 // price-report flow on C7, which needs a signed-in customer (complaints RLS is customer-scoped); a guest is
 // sent to sign in first, same as C1's quick actions.
-import { formatMoney, openBadge, crowdBadge, stationStatusView, type StationStatusView } from "@fuelos/core";
+import { formatMoney, openBadge, crowdBadge, type CrowdLevel } from "@fuelos/core";
 import { AlertBanner, StatusBadge, cx } from "@fuelos/ui";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -27,7 +27,7 @@ export default function StationDetailPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [access, setAccess] = useState<CustomerAccess>();
   const [now, setNow] = useState(() => Date.now());
-  const [statusView, setStatusView] = useState<StationStatusView | null | undefined>(undefined);
+  const [statusView, setStatusView] = useState<{ isOpen: boolean | null; crowd: CrowdLevel | null } | null | undefined>(undefined);
 
   useEffect(() => {
     customerAccess().then(setAccess, () => setAccess({ kind: "error" }));
@@ -49,12 +49,7 @@ export default function StationDetailPage() {
         if (!alive) return;
         const s = stations.find((st) => st.stationId === params.id);
         if (s) {
-          setStatusView(stationStatusView({
-            is_open: s.isOpen,
-            open_set_at: s.openSetAt,
-            crowd: s.crowd,
-            crowd_set_at: s.crowdSetAt,
-          }));
+          setStatusView({ isOpen: s.isOpen, crowd: s.crowd });
         } else {
           setStatusView(null);
         }

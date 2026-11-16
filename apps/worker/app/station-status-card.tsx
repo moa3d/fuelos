@@ -36,6 +36,16 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
       .catch(() => setLoadError("تعذّر تحميل حالة المحطة"));
   }, [stationId]);
 
+  // Re-attempt load automatically when connectivity is restored after a load failure.
+  // Deps intentionally limited to [online]: we only want to react to network changes,
+  // not re-run on every loadError/stationId change.
+  useEffect(() => {
+    if (!online || !loadError) return;
+    loadStationStatus(stationId)
+      .then((v) => { setView(v); setLoadError(undefined); })
+      .catch(() => setLoadError("تعذّر تحميل حالة المحطة"));
+  }, [online]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function apply(patch: StatusPatch) {
     if (busy.current || !online || !view) return;
     busy.current = true;
@@ -59,6 +69,9 @@ export function StationStatusCard({ stationId }: { stationId: string }) {
   }
 
   if (loadError) {
+    if (!online) {
+      return <AlertBanner tone="warning" title={OFFLINE_MESSAGE} />;
+    }
     return (
       <AlertBanner tone="danger" title={loadError}
         action={<Button variant="secondary" onClick={() => void load()}>إعادة المحاولة</Button>}>

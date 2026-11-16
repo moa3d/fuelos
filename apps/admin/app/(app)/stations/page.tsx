@@ -25,15 +25,17 @@ export default function StationsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [liveStatuses, setLiveStatuses] = useState<Map<string, StationStatusView>>(new Map());
+  const [liveError, setLiveError] = useState(false);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
     loadStations().then(
       (data) => {
         setLoad({ status: "ready", data });
+        setLiveError(false);
         loadLiveStatuses(data.map((s) => s.id))
           .then(setLiveStatuses)
-          .catch((err) => { console.error("loadLiveStatuses:", err); });
+          .catch((err) => { console.error("loadLiveStatuses:", err); setLiveError(true); });
       },
       () => setLoad({ status: "error" }),
     );
@@ -121,6 +123,8 @@ export default function StationsPage() {
                             {newerTimestamp && <span className="text-body-small-12 text-text-secondary">{timeAgo(newerTimestamp, now)}</span>}
                           </div>
                         </td>
+                      ) : liveError ? (
+                        <td className="p-3 text-text-secondary">—</td>
                       ) : (
                         <td className="p-3 text-text-secondary text-body-small-12">لم تُحدَّث بعد</td>
                       )}

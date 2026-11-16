@@ -137,7 +137,7 @@ export default function StationMap({ stations, here, hereState, ask }: StationMa
           onClick={handleLocate}
           aria-busy={hereState === "asking"}
           disabled={hereState === "asking"}
-          className="flex items-center gap-1.5 shadow-md"
+          className="flex min-h-11 items-center gap-1.5 shadow-md"
         >
           <Icon name="pin" size={16} />
           موقعي
@@ -156,7 +156,7 @@ export default function StationMap({ stations, here, hereState, ask }: StationMa
             type="button"
             onClick={() => setSelected(null)}
             aria-label="إغلاق"
-            className="absolute end-4 top-4 inline-flex size-8 items-center justify-center rounded-full bg-surface-muted text-text-secondary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+            className="absolute end-4 top-4 inline-flex size-11 items-center justify-center rounded-full bg-surface-muted text-text-secondary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
           >
             <Icon name="plus" size={16} className="rotate-45" />
           </button>
@@ -184,7 +184,7 @@ export default function StationMap({ stations, here, hereState, ask }: StationMa
           <div className="flex items-center gap-3">
             <Link
               href={`/station/${selected.stationId}`}
-              className="inline-flex h-10 items-center justify-center rounded-sm border border-border-strong bg-surface-card px-4 text-body-strong-14 text-text-primary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+              className="inline-flex min-h-11 items-center justify-center rounded-sm border border-border-strong bg-surface-card px-4 text-body-strong-14 text-text-primary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
             >
               التفاصيل
             </Link>
@@ -193,7 +193,7 @@ export default function StationMap({ stations, here, hereState, ask }: StationMa
                 href={dirUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-10 items-center justify-center rounded-sm border border-border-strong bg-surface-card px-4 text-body-strong-14 text-text-primary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+                className="inline-flex min-h-11 items-center justify-center rounded-sm border border-border-strong bg-surface-card px-4 text-body-strong-14 text-text-primary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
               >
                 <Icon name="external" size={16} className="me-1.5" />
                 الاتجاهات
