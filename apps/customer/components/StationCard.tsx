@@ -19,6 +19,8 @@ export function StationCard({
   href,
   city,
   mapHref,
+  badges,
+  distance,
   prices,
   updated,
   stale = false,
@@ -28,6 +30,10 @@ export function StationCard({
   href?: string;
   city?: string;
   mapHref?: string;
+  /** Open/crowd status badges rendered next to the name (e.g. <StatusBadge>). Omitted when there's none. */
+  badges?: ReactNode;
+  /** Already formatted distance, e.g. "≈ 2.4 كم" (formatDistance). Omitted when `here` or coordinates are unknown. */
+  distance?: string;
   prices: StationPriceRow[];
   /** Already formatted freshness line, e.g. "آخر تحديث منذ 5 دقائق · من إدارة المحطة". */
   updated?: string;
@@ -38,18 +44,24 @@ export function StationCard({
   return (
     <article className={cx("rounded-[18px] border border-border-default bg-surface-card px-4 py-3.5 shadow-card", className)}>
       <div className="flex items-baseline justify-between gap-2">
-        {href ? (
-          <Link href={href} className="text-body-strong-14 text-text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">{name}</Link>
-        ) : (
-          <h2 className="text-body-strong-14 text-text-primary">{name}</h2>
-        )}
-        {city && <span className="text-body-small-12 text-text-secondary">{city}</span>}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+          {href ? (
+            <Link href={href} className="text-body-strong-14 text-text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">{name}</Link>
+          ) : (
+            <h2 className="text-body-strong-14 text-text-primary">{name}</h2>
+          )}
+          {badges}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          {city && <span className="text-body-small-12 text-text-secondary">{city}</span>}
+          {distance && <span className="text-body-small-12 text-text-secondary">{distance}</span>}
+        </div>
       </div>
 
       {mapHref && (
         <a href={mapHref} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-11 items-center gap-1 text-body-small-12 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
           <Icon name="pin" size={14} />
-          الموقع على الخريطة
+          الاتجاهات
         </a>
       )}
 
