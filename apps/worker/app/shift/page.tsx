@@ -317,7 +317,13 @@ export default function QuickFillPage() {
   );
 }
 
-/** «ربط زبون (اختياري)» (docs/briefs/06d, delivered in 06e): needs the network, and never blocks the sale. */
+/** Returns true when Chrome/Android BarcodeDetector API is available (no external library needed). */
+function isBarcodeScanSupported(): boolean {
+  return typeof window !== "undefined" && "BarcodeDetector" in window;
+}
+
+/** «ربط زبون (اختياري)» (docs/briefs/06d, delivered in 06e): needs the network, and never blocks the sale.
+ *  When BarcodeDetector is available (Chrome/Android), shows a camera scan button above the manual input. */
 function CustomerLinkCard({ stationId, online, customer, onChange }: {
   stationId: string | undefined; online: boolean; customer: CustomerMatch | null; onChange: (c: CustomerMatch | null) => void;
 }) {
@@ -325,11 +331,66 @@ function CustomerLinkCard({ stationId, online, customer, onChange }: {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
+  const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<number | null>(null);
 
-  async function search() {
-    if (!stationId || !query.trim() || busy) return;
+  // Stop all camera tracks and clear the scan loop on unmount.
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  function stopStream() {
+    if (intervalRef.current !== null) { window.clearInterval(intervalRef.current); intervalRef.current = null; }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+
+  function stopScan() { stopStream(); setScanning(false); }
+
+  async function startScan() {
+    setCameraError(null);
+    setScanning(true);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    } catch {
+      setScanning(false);
+      setCameraError("تعذّر فتح الكاميرا — استخدم الإدخال اليدوي");
+      return;
+    }
+    streamRef.current = stream;
+    // Yield to React so the <video> element is painted before we attach srcObject.
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    if (!videoRef.current) { stopStream(); setScanning(false); return; }
+    videoRef.current.srcObject = stream;
+    await videoRef.current.play().catch(() => null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const detector: { detect(v: HTMLVideoElement): Promise<{ rawValue: string }[]> } = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+    intervalRef.current = window.setInterval(async () => {
+      if (!videoRef.current) return;
+      try {
+        const results = await detector.detect(videoRef.current);
+        if (results.length > 0) {
+          const raw = results[0].rawValue;
+          stopStream();
+          setScanning(false);
+          setQuery(raw); // show scanned value in the input (visible if the search fails)
+          void runSearch(raw);
+        }
+      } catch { /* video not ready yet — skip frame */ }
+    }, 200);
+  }
+
+  async function runSearch(value: string) {
+    if (!stationId || !value.trim() || busy) return;
     setBusy(true); setMsg(undefined);
-    const res = await lookupCustomerForSale(stationId, query.trim()).catch(() => ({ ok: false as const, message: "تعذّر البحث — تحقق من الاتصال" }));
+    const res = await lookupCustomerForSale(stationId, value.trim()).catch(() => ({ ok: false as const, message: "تعذّر البحث — تحقق من الاتصال" }));
     setBusy(false);
     if (!res.ok) return setMsg(res.message);
     if (!res.match) return setMsg("لم يُعثر على زبون بهذا الرمز أو الرقم");
@@ -337,6 +398,8 @@ function CustomerLinkCard({ stationId, online, customer, onChange }: {
     setOpen(false);
     setQuery("");
   }
+
+  function search() { void runSearch(query); }
 
   if (customer) {
     return (
@@ -368,18 +431,45 @@ function CustomerLinkCard({ stationId, online, customer, onChange }: {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border-default bg-surface-card p-3">
       {!online ? (
-        <p className="text-body-small-12 text-status-warning-700">الربط يحتاج اتصالاً — يمكن البيع بدون ربط</p>
-      ) : (
         <>
+          <p className="text-body-small-12 text-status-warning-700">الربط يحتاج اتصالاً — يمكن البيع بدون ربط</p>
+          <Button variant="ghost" size="md" onClick={() => setOpen(false)}>إغلاق</Button>
+        </>
+      ) : scanning ? (
+        /* ── Camera view ── */
+        <div className="relative overflow-hidden rounded-md bg-black" style={{ minHeight: "16rem" }}>
+          <video ref={videoRef} className="h-64 w-full object-cover" muted playsInline />
+          {/* Targeting frame */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="size-44 rounded-lg border-2 border-white/80" />
+          </div>
+          <p className="absolute bottom-14 inset-x-0 text-center text-body-small-12 text-white drop-shadow-sm">
+            وجّه الكاميرا نحو رمز بطاقة الزبون
+          </p>
+          <div className="absolute inset-x-0 bottom-3 flex justify-center">
+            <Button variant="secondary" size="md" className="min-h-11" onClick={stopScan}>إلغاء</Button>
+          </div>
+        </div>
+      ) : (
+        /* ── Manual input + optional scan button ── */
+        <>
+          {isBarcodeScanSupported() && (
+            <Button variant="action" size="md" className="min-h-11 w-full" onClick={() => void startScan()}>
+              <CameraIcon />
+              <span className="ms-2">مسح بالكاميرا</span>
+            </Button>
+          )}
+          {cameraError && (
+            <p className="text-body-small-12 text-status-danger-700" role="alert">{cameraError}</p>
+          )}
           <Input size="md" label="رمز البطاقة أو رقم الهاتف" dir="ltr" autoComplete="off" value={query}
             onChange={(e) => setQuery(e.target.value)} error={msg} />
           <div className="flex gap-2">
             <Button variant="action" size="md" disabled={!query.trim() || busy} onClick={search}>{busy ? "جارٍ البحث…" : "بحث"}</Button>
-            <Button variant="ghost" size="md" onClick={() => { setOpen(false); setQuery(""); setMsg(undefined); }}>إلغاء</Button>
+            <Button variant="ghost" size="md" onClick={() => { setOpen(false); setQuery(""); setMsg(undefined); setCameraError(null); }}>إلغاء</Button>
           </div>
         </>
       )}
-      {!online && <Button variant="ghost" size="md" onClick={() => setOpen(false)}>إغلاق</Button>}
     </div>
   );
 }
@@ -390,6 +480,7 @@ function CardIcon() { return <svg {...svg}><rect x="2" y="5" width="20" height="
 function BuildingIcon() { return <svg {...svg}><rect x="4" y="2" width="16" height="20" rx="1" /><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01" /></svg>; }
 function TicketIcon() { return <svg {...svg}><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v8a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2z" /><path d="M13 6v12" strokeDasharray="2 2" /></svg>; }
 function QrIcon() { return <svg {...svg}><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" /></svg>; }
+function CameraIcon() { return <svg {...svg} width={18} height={18}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>; }
 function LockIcon() { return <svg {...svg} width={14} height={14}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>; }
 function ClockIcon() { return <svg {...svg} width={14} height={14}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>; }
 function PumpIcon() { return <svg {...svg} width={14} height={14}><path d="M3 22h12M4 9h10M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5" /></svg>; }
