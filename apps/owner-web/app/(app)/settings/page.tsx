@@ -21,12 +21,18 @@ import {
 import {
   canSetPin, CAPABILITIES, isSelfRow, matchesSearch, ROLE_LABEL, statusBadge, type MemberRole,
 } from "@/lib/settings-rules";
+import dynamic from "next/dynamic";
 import {
   addRewardTier, loadLocation, loadRewardsSettings, setOfferCode, setPointValue, setTierActive, updateLocation,
   type Location, type RewardsSettings,
 } from "@/lib/rewards-settings-data";
 import { timeAgo } from "@/lib/time-ago";
 import { useOffice } from "../office-context";
+
+const LocationPicker = dynamic(
+  () => import("./location-picker").then((m) => m.LocationPicker),
+  { ssr: false, loading: () => <span className="block h-[280px] animate-pulse rounded-lg bg-surface-muted" /> },
+);
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
 type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "notifications";
@@ -814,12 +820,23 @@ function LocationTab({ stationId, canManage }: { stationId: string; canManage: b
       <h2 className="text-heading-h2-20">موقع المحطة</h2>
       <p className="text-body-small-12 text-text-secondary">يظهر للزبائن على خريطة الأسعار العامة. اتركهما فارغين لإخفاء الموقع.</p>
       {!canManage && <AlertBanner tone="info" title="التعديل متاح لصاحب المحطة فقط" />}
+      <LocationPicker
+        lat={lat}
+        lng={lng}
+        disabled={!canManage}
+        onChange={(a, b) => { setLat(a); setLng(b); setMsg(undefined); }}
+      />
       <div className="grid gap-4 md:grid-cols-2">
-        <Input label="خط العرض (Latitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} placeholder="33.5138" />
-        <Input label="خط الطول (Longitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} placeholder="36.2765" />
+        <Input label="خط العرض (Latitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lat} onChange={(e) => { setLat(e.target.value); setMsg(undefined); }} placeholder="33.5138" />
+        <Input label="خط الطول (Longitude)" dir="ltr" disabled={!canManage} inputMode="decimal" value={lng} onChange={(e) => { setLng(e.target.value); setMsg(undefined); }} placeholder="36.2765" />
       </div>
       {msg && <AlertBanner tone="danger" title={msg} />}
-      {canManage && <Button variant="action" disabled={busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "حفظ الموقع"}</Button>}
+      {canManage && (
+        <div className="flex flex-wrap gap-3">
+          <Button variant="action" disabled={busy} onClick={save}>{busy ? "جارٍ الحفظ…" : "حفظ الموقع"}</Button>
+          <Button variant="secondary" disabled={busy} onClick={() => { setLat(""); setLng(""); setMsg(undefined); }}>إزالة الموقع</Button>
+        </div>
+      )}
     </section>
   );
 }
