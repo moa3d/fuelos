@@ -23,6 +23,7 @@ test("parseStations: reads one full fixture row", () => {
       { productId: "p1", name: "بنزين 95", price: "125", priceUpdatedAt: "2026-11-14T07:30:00Z",
         availability: "available", availabilitySource: "manual", availabilityUpdatedAt: null },
     ],
+    offer: null,
   });
 });
 
@@ -48,6 +49,7 @@ function station(partial: Partial<DirectoryStation>): DirectoryStation {
   return {
     stationId: "x", name: "محطة", city: null, address: null, lat: null, lng: null,
     isOpen: null, openSource: null, openSetAt: null, crowd: null, crowdSetAt: null, products: [],
+    offer: null,
     ...partial,
   };
 }

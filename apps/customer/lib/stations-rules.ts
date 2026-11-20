@@ -11,12 +11,15 @@ export type DirectoryProduct = {
   availabilityUpdatedAt: string | null;
 };
 
+export type StationOffer = { title: string; description: string; endsAt: string | null };
+
 export type DirectoryStation = {
   stationId: string; name: string; city: string | null; address: string | null;
   lat: number | null; lng: number | null;
   isOpen: boolean | null; openSource: OpenSource | null; openSetAt: string | null;
   crowd: CrowdLevel | null; crowdSetAt: string | null;
   products: DirectoryProduct[];
+  offer: StationOffer | null;
 };
 
 export type Here = { lat: number; lng: number };
@@ -62,12 +65,17 @@ export function parseStations(json: unknown): DirectoryStation[] {
     const products = Array.isArray(row.products)
       ? row.products.map(parseProduct).filter((p): p is DirectoryProduct => p !== null)
       : [];
+    const rawOffer = row.offer;
+    const offer: StationOffer | null =
+      isRecord(rawOffer) && typeof rawOffer.title === "string" && typeof rawOffer.description === "string"
+        ? { title: rawOffer.title, description: rawOffer.description, endsAt: str(rawOffer.endsAt) ?? str(rawOffer.ends_at) }
+        : null;
     out.push({
       stationId, name: str(row.name) ?? "", city: str(row.city), address: str(row.address),
       lat: num(row.lat), lng: num(row.lng),
       isOpen: bool(row.is_open), openSource, openSetAt: str(row.open_set_at),
       crowd, crowdSetAt: str(row.crowd_set_at),
-      products,
+      products, offer,
     });
   }
   return out;

@@ -17,6 +17,7 @@ import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 import { loadStationDetail } from "@/lib/prices-data";
 import { availabilityBadge, mapUrl, type Station } from "@/lib/prices-rules";
 import { loadStations } from "@/lib/stations-data";
+import type { StationOffer } from "@/lib/stations-rules";
 import { timeAgo } from "@/lib/time-ago";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "empty" } | { status: "ready"; data: Station };
@@ -27,7 +28,7 @@ export default function StationDetailPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [access, setAccess] = useState<CustomerAccess>();
   const [now, setNow] = useState(() => Date.now());
-  const [statusView, setStatusView] = useState<{ isOpen: boolean | null; crowd: CrowdLevel | null } | null | undefined>(undefined);
+  const [statusView, setStatusView] = useState<{ isOpen: boolean | null; crowd: CrowdLevel | null; offer: StationOffer | null } | null | undefined>(undefined);
 
   useEffect(() => {
     customerAccess().then(setAccess, () => setAccess({ kind: "error" }));
@@ -49,7 +50,7 @@ export default function StationDetailPage() {
         if (!alive) return;
         const s = stations.find((st) => st.stationId === params.id);
         if (s) {
-          setStatusView({ isOpen: s.isOpen, crowd: s.crowd });
+          setStatusView({ isOpen: s.isOpen, crowd: s.crowd, offer: s.offer });
         } else {
           setStatusView(null);
         }
@@ -168,6 +169,20 @@ export default function StationDetailPage() {
               <span className="flex-1">السعر غير صحيح؟</span>
               <Icon name="chevron-left" size={18} className="rtl:rotate-180" />
             </Link>
+          </section>
+        )}
+        {statusView?.offer && (
+          <section className="rounded-[18px] border border-brand-primary bg-surface-card px-4 py-3.5 shadow-card">
+            <div className="flex items-center gap-2 mb-2">
+              <StatusBadge tone="primary">عرض جديد</StatusBadge>
+              <h2 className="text-heading-h3-16 text-text-primary">{statusView.offer.title}</h2>
+            </div>
+            <p className="text-body-regular-14 text-text-secondary">{statusView.offer.description}</p>
+            {statusView.offer.endsAt && (
+              <p className="mt-2 text-body-small-12 text-text-secondary">
+                ينتهي: {new Date(statusView.offer.endsAt).toLocaleDateString("ar-SY", { day: "numeric", month: "long" })}
+              </p>
+            )}
           </section>
         )}
       </main>
