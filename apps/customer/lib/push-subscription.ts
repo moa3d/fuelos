@@ -1,5 +1,12 @@
 import { supabase } from "./supabase";
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`TIMEOUT:${label}`)), ms)),
+  ]);
+}
+
 const VAPID_PUBLIC_KEY = "BH8BkhUxGLwyuQ0j4W1sOtbnBXAaC2YOC0r_b7QA-i6poRsOOsjEKgv89vZMYup7a9pYtPevtkL4nS9RlbILhVY";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -29,19 +36,19 @@ export async function enableCustomerPush(): Promise<void> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("denied");
 
-  const existing = await reg.pushManager.getSubscription();
-  const sub = existing ?? await reg.pushManager.subscribe({
+  const existing = await withTimeout(reg.pushManager.getSubscription(), 8000, "getSubscription");
+  const sub = existing ?? await withTimeout(reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as unknown as BufferSource,
-  });
+  }), 8000, "subscribe");
 
   const json = sub.toJSON();
   const keys = json.keys as { p256dh: string; auth: string };
-  const { error } = await supabase().rpc("subscribe_customer_push", {
+  const { error } = await withTimeout(Promise.resolve(supabase().rpc("subscribe_customer_push", {
     p_endpoint: sub.endpoint,
     p_p256dh: keys.p256dh,
     p_auth_key: keys.auth,
-  });
+  })), 8000, "rpc");
   if (error) throw new Error(error.message);
 }
 
