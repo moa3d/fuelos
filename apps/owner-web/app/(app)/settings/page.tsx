@@ -30,6 +30,7 @@ import { timeAgo } from "@/lib/time-ago";
 import {
   disableOwnerPush, enableOwnerPush, getPushStatus, type PushStatus,
 } from "@/lib/push-subscription";
+import { PromosTab } from "./promos-tab";
 import { useOffice } from "../office-context";
 
 const LocationPicker = dynamic(
@@ -38,10 +39,11 @@ const LocationPicker = dynamic(
 );
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
-type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "notifications";
+type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "promos" | "notifications";
 const TABS: [Tab, string][] = [
   ["station", "المحطة"], ["tanks", "الخزانات والمضخات"], ["users", "المستخدمون والصلاحيات"],
-  ["devices", "الأجهزة"], ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"], ["notifications", "الإشعارات"],
+  ["devices", "الأجهزة"], ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"],
+  ["promos", "العروض"], ["notifications", "الإشعارات"],
 ];
 const ROLES: MemberRole[] = ["owner", "accountant", "shift_manager", "attendant"];
 
@@ -95,6 +97,7 @@ export default function SettingsPage() {
       {tab === "tanks" && <EquipmentTab stationId={current.stationId} canManage={canManage} />}
       {tab === "rewards" && <RewardsTab stationId={current.stationId} canManage={canManage} currency={current.currencyLabel} />}
       {tab === "devices" && <DevicesTab stationId={current.stationId} canManage={canManageDevices} />}
+      {tab === "promos" && <PromosTab stationId={current.stationId} canManage={canManage || current.role === "shift_manager"} />}
       {tab === "notifications" && <NotificationsTab canManage={canManage} />}
 
       {tab === "users" && (
