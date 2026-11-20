@@ -27,6 +27,10 @@ import {
   type Location, type RewardsSettings,
 } from "@/lib/rewards-settings-data";
 import { timeAgo } from "@/lib/time-ago";
+import {
+  disableOwnerPush, enableOwnerPush, getPushStatus, type PushStatus,
+} from "@/lib/push-subscription";
+import { PromosTab } from "./promos-tab";
 import { useOffice } from "../office-context";
 
 const LocationPicker = dynamic(
@@ -35,10 +39,11 @@ const LocationPicker = dynamic(
 );
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: SettingsData };
-type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "notifications";
+type Tab = "station" | "tanks" | "users" | "devices" | "tolerances" | "rewards" | "promos" | "notifications";
 const TABS: [Tab, string][] = [
   ["station", "المحطة"], ["tanks", "الخزانات والمضخات"], ["users", "المستخدمون والصلاحيات"],
-  ["devices", "الأجهزة"], ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"], ["notifications", "الإشعارات"],
+  ["devices", "الأجهزة"], ["tolerances", "حدود التسامح"], ["rewards", "المكافآت"],
+  ["promos", "العروض"], ["notifications", "الإشعارات"],
 ];
 const ROLES: MemberRole[] = ["owner", "accountant", "shift_manager", "attendant"];
 
@@ -92,7 +97,8 @@ export default function SettingsPage() {
       {tab === "tanks" && <EquipmentTab stationId={current.stationId} canManage={canManage} />}
       {tab === "rewards" && <RewardsTab stationId={current.stationId} canManage={canManage} currency={current.currencyLabel} />}
       {tab === "devices" && <DevicesTab stationId={current.stationId} canManage={canManageDevices} />}
-      {tab === "notifications" && <ComingSoon text="تفضيلات الإشعارات — قريباً." />}
+      {tab === "promos" && <PromosTab stationId={current.stationId} canManage={canManage || current.role === "shift_manager"} />}
+      {tab === "notifications" && <NotificationsTab canManage={canManage} />}
 
       {tab === "users" && (
         <>
@@ -202,9 +208,95 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function ComingSoon({ text }: { text: string }) {
-  return <AlertBanner tone="info" title="هذا القسم قيد الإعداد">{text}</AlertBanner>;
+// ---------- الإشعارات ----------
+function NotificationsTab({ canManage }: { canManage: boolean }) {
+  const [status, setStatus] = useState<PushStatus | "loading">("loading");
+  const [stationCount, setStationCount] = useState<number>(0);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+
+  useEffect(() => {
+    getPushStatus().then(setStatus).catch(() => setStatus("unsupported"));
+  }, []);
+
+  async function enable() {
+    setBusy(true); setMsg(undefined);
+    try {
+      const count = await enableOwnerPush();
+      setStationCount(count);
+      setStatus("enabled");
+    } catch (e) {
+      const err = e as Error;
+      if (err.message === "denied") {
+        setStatus("denied");
+      } else {
+        setMsg(err.message || "حدث خطأ غير متوقع");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setBusy(true); setMsg(undefined);
+    try {
+      await disableOwnerPush();
+      setStatus("disabled");
+      setStationCount(0);
+    } catch (e) {
+      setMsg((e as Error).message || "حدث خطأ غير متوقع");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg bg-surface-card p-6 shadow-card">
+      <h2 className="text-heading-h2-20">إشعارات الشكاوى</h2>
+      <p className="text-body-small-12 text-text-secondary">
+        فعّل الإشعارات لتستلم تنبيهاً فورياً على هذا الجهاز عند وصول شكوى زبون جديدة، حتى لو اللوحة مغلقة.
+      </p>
+
+      {status === "loading" && <span className="block h-10 animate-pulse rounded-lg bg-surface-muted" />}
+
+      {status === "unsupported" && (
+        <AlertBanner tone="info" title="المتصفح لا يدعم الإشعارات">
+          هذه الميزة تعمل على Chrome وEdge وFirefox. جرّب فتح اللوحة من متصفح آخر.
+        </AlertBanner>
+      )}
+
+      {status === "denied" && (
+        <AlertBanner tone="warning" title="الإشعارات محجوبة من المتصفح">
+          فعّلها يدوياً: افتح إعدادات المتصفح ← الإذونات ← الإشعارات ← اسمح لهذا الموقع، ثم أعِد تحميل الصفحة.
+        </AlertBanner>
+      )}
+
+      {!canManage && status !== "loading" && status !== "unsupported" && (
+        <AlertBanner tone="info" title="التفعيل متاح لصاحب المحطة فقط" />
+      )}
+
+      {canManage && status === "disabled" && (
+        <Button variant="action" disabled={busy} onClick={enable}>
+          {busy ? "جارٍ التفعيل…" : "تفعيل الإشعارات"}
+        </Button>
+      )}
+
+      {canManage && status === "enabled" && (
+        <div className="flex flex-col gap-3">
+          <p className="text-body-regular-14 text-status-success">
+            ✓ مفعّلة{stationCount > 0 ? ` لـ${stationCount} محطة` : ""}
+          </p>
+          <Button variant="secondary" disabled={busy} onClick={disable}>
+            {busy ? "جارٍ الإيقاف…" : "إيقاف الإشعارات"}
+          </Button>
+        </div>
+      )}
+
+      {msg && <AlertBanner tone="danger" title={msg} />}
+    </section>
+  );
 }
+
 
 // ---------- الخزانات والمضخات (docs/briefs/06b/06e): additive only, through setup_station_equipment() ----------
 function EquipmentTab({ stationId, canManage }: { stationId: string; canManage: boolean }) {

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Icon } from "@/components/Icon";
 import { groupedCode, loadMyCard, type MyCard } from "@/lib/card-data";
+import { disableCustomerPush, enableCustomerPush, getPushStatus, type PushStatus } from "@/lib/push-subscription";
 import { useCustomer } from "../customer-context";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary";
@@ -21,12 +22,38 @@ export default function CardPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [qrSrc, setQrSrc] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const [pushStatus, setPushStatus] = useState<PushStatus | "loading">("loading");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMsg, setPushMsg] = useState<string>();
 
   useEffect(() => {
     let alive = true;
     loadMyCard(userId).then((data) => { if (alive) setLoad({ status: "ready", data }); }, () => { if (alive) setLoad({ status: "error" }); });
     return () => { alive = false; };
   }, [userId]);
+
+  useEffect(() => {
+    getPushStatus().then(setPushStatus).catch(() => setPushStatus("unsupported"));
+  }, []);
+
+  async function enablePush() {
+    setPushBusy(true); setPushMsg(undefined);
+    try {
+      await enableCustomerPush();
+      setPushStatus("enabled");
+    } catch (e) {
+      const err = e as Error;
+      if (err.message === "denied") { setPushStatus("denied"); }
+      else { setPushMsg(err.message || "حدث خطأ غير متوقع"); }
+    } finally { setPushBusy(false); }
+  }
+
+  async function disablePush() {
+    setPushBusy(true); setPushMsg(undefined);
+    try { await disableCustomerPush(); setPushStatus("disabled"); }
+    catch (e) { setPushMsg((e as Error).message || "حدث خطأ غير متوقع"); }
+    finally { setPushBusy(false); }
+  }
 
   useEffect(() => {
     if (load.status !== "ready") return;
@@ -85,6 +112,43 @@ export default function CardPage() {
           </div>
         </>
       )}
+      <section className="flex flex-col gap-3 rounded-lg bg-surface-card p-4 shadow-card">
+        <h2 className="text-heading-h3-16 text-text-primary">إشعارات العروض</h2>
+        <p className="text-body-small-12 text-text-secondary">
+          فعّل الإشعارات لتستلم تنبيهاً فورياً عند نشر محطة عرضاً جديداً.
+        </p>
+
+        {pushStatus === "loading" && <span className="block h-10 animate-pulse rounded-lg bg-surface-muted" />}
+
+        {pushStatus === "unsupported" && (
+          <AlertBanner tone="info" title="المتصفح لا يدعم الإشعارات">
+            هذه الميزة تعمل على Chrome وEdge. جرّب فتح التطبيق من متصفح آخر.
+          </AlertBanner>
+        )}
+
+        {pushStatus === "denied" && (
+          <AlertBanner tone="warning" title="الإشعارات محجوبة من المتصفح">
+            فعّلها يدوياً: افتح إعدادات المتصفح ← الإذونات ← الإشعارات ← اسمح لهذا الموقع، ثم أعِد تحميل الصفحة.
+          </AlertBanner>
+        )}
+
+        {pushStatus === "disabled" && (
+          <Button variant="action" block disabled={pushBusy} onClick={enablePush}>
+            {pushBusy ? "جارٍ التفعيل…" : "تفعيل الإشعارات"}
+          </Button>
+        )}
+
+        {pushStatus === "enabled" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-body-small-12 text-status-success">✓ الإشعارات مفعّلة على هذا الجهاز</p>
+            <Button variant="secondary" block disabled={pushBusy} onClick={disablePush}>
+              {pushBusy ? "جارٍ الإيقاف…" : "إيقاف الإشعارات"}
+            </Button>
+          </div>
+        )}
+
+        {pushMsg && <AlertBanner tone="danger" title={pushMsg} />}
+      </section>
     </div>
   );
 }

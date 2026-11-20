@@ -152,6 +152,7 @@ function stationCardProps(s: DirectoryStation, here: { lat: number; lng: number 
     <span className="flex items-center gap-1.5">
       <StatusBadge tone={open.tone}>{open.label}</StatusBadge>
       {crowd && <StatusBadge tone={crowd.tone}>{crowd.label}</StatusBadge>}
+      {s.offer && <StatusBadge tone="primary">عرض جديد</StatusBadge>}
     </span>
   );
 
