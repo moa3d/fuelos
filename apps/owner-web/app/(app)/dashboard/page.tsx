@@ -12,6 +12,7 @@ import { loadShiftPhotos, signPaths, type ShiftPhotos } from "@/lib/photos-data"
 import { loadRecentShifts, type RecentShift } from "@/lib/recent-shifts-data";
 import { useOffice } from "../office-context";
 import { DailyChart } from "./daily-chart";
+import { StationStatusCard } from "./station-status-card";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: DashboardData };
 
@@ -50,6 +51,8 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto flex max-w-[1152px] flex-col gap-6">
+      <StationStatusCard key={current.stationId} stationId={current.stationId} />
+
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-display-32">لوحة القيادة</h1>

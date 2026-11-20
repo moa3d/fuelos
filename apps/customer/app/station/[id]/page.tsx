@@ -5,7 +5,7 @@
 // doesn't have yet — omitted rather than faked, same principle as C1. «السعر غير صحيح؟» reuses the existing
 // price-report flow on C7, which needs a signed-in customer (complaints RLS is customer-scoped); a guest is
 // sent to sign in first, same as C1's quick actions.
-import { formatMoney } from "@fuelos/core";
+import { formatMoney, openBadge, crowdBadge, type CrowdLevel } from "@fuelos/core";
 import { AlertBanner, StatusBadge, cx } from "@fuelos/ui";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -16,6 +16,7 @@ import { IconBox } from "@/components/IconBox";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
 import { loadStationDetail } from "@/lib/prices-data";
 import { availabilityBadge, mapUrl, type Station } from "@/lib/prices-rules";
+import { loadStations } from "@/lib/stations-data";
 import { timeAgo } from "@/lib/time-ago";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "empty" } | { status: "ready"; data: Station };
@@ -26,6 +27,7 @@ export default function StationDetailPage() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [access, setAccess] = useState<CustomerAccess>();
   const [now, setNow] = useState(() => Date.now());
+  const [statusView, setStatusView] = useState<{ isOpen: boolean | null; crowd: CrowdLevel | null } | null | undefined>(undefined);
 
   useEffect(() => {
     customerAccess().then(setAccess, () => setAccess({ kind: "error" }));
@@ -36,6 +38,23 @@ export default function StationDetailPage() {
     loadStationDetail(params.id).then(
       (data) => { if (alive) { setLoad(data ? { status: "ready", data } : { status: "empty" }); setNow(Date.now()); } },
       () => { if (alive) setLoad({ status: "error" }); },
+    );
+    return () => { alive = false; };
+  }, [params.id]);
+
+  useEffect(() => {
+    let alive = true;
+    loadStations().then(
+      ({ stations }) => {
+        if (!alive) return;
+        const s = stations.find((st) => st.stationId === params.id);
+        if (s) {
+          setStatusView({ isOpen: s.isOpen, crowd: s.crowd });
+        } else {
+          setStatusView(null);
+        }
+      },
+      () => { /* non-fatal: leave statusView as undefined, no badges shown */ },
     );
     return () => { alive = false; };
   }, [params.id]);
@@ -77,6 +96,14 @@ export default function StationDetailPage() {
                 </span>
                 <div className="min-w-0">
                   <h1 className="text-heading-h1-24 text-text-on-dark">{data.name}</h1>
+                  {statusView && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                      <StatusBadge tone={openBadge(statusView.isOpen).tone}>{openBadge(statusView.isOpen).label}</StatusBadge>
+                      {statusView.crowd !== null && (
+                        <StatusBadge tone={crowdBadge(statusView.crowd).tone}>{crowdBadge(statusView.crowd).label}</StatusBadge>
+                      )}
+                    </div>
+                  )}
                   {data.city && <p className="text-body-small-12 text-text-on-dark-muted">{data.city}</p>}
                 </div>
               </header>
