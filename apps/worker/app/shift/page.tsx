@@ -21,6 +21,7 @@ import { useLiveShift, useOutbox } from "@/lib/use-sync";
 import { newId } from "@/lib/uuid";
 import { CheckIcon, StickyAction } from "../shift-parts";
 import { SavedSale } from "../saved-sale";
+import { StationStatusCard } from "../station-status-card";
 import { HeaderChip, WorkerHeader } from "../worker-header";
 
 type Mode = "liters" | "amount";
@@ -184,6 +185,7 @@ export default function QuickFillPage() {
       <WorkerHeader userId={me.userId} name={me.displayName} stationName={ref?.stationName} chips={chips} />
 
       <main className="mx-auto flex w-full max-w-[390px] flex-col gap-4 px-4 pt-4">
+        <StationStatusCard stationId={me.stationId} />
         {ref && hours > ref.maxShiftHours && (
           <AlertBanner tone="warning" title={`مرّت أكثر من ${ref.maxShiftHours} ساعة على بداية المناوبة`}>
             أغلق المناوبة، أو اتصل بالمدير إن كان عليك الاستمرار.

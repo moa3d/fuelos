@@ -1,11 +1,10 @@
 "use client";
-// C1 — الرئيسية, guest-accessible slice (design/screens/C1.png). No login required: public_station_prices is
-// granted to anon. A station's location shows as a "الموقع على الخريطة" link when the owner set lat/lng
-// (docs/briefs/06a) — distance/rating/services-catalog parts of the full design still need schema FuelOS
-// doesn't have, so those stay omitted rather than faked. Quick-action tiles need a signed-in customer (RLS is
-// customer-scoped for all of C3–C7), so guests see a "sign in first" prompt instead.
-import { formatMoney } from "@fuelos/core";
-import { AlertBanner, StatusBadge, cx } from "@fuelos/ui";
+// T1 — دليل المحطات (design/screens/T1.png). Guest-accessible: public_stations() is granted to anon, same
+// pattern as the old public_station_prices view it replaces (see docs/briefs for the station-live-status
+// plan). Shows every active station's live open/crowd status, prices and availability, with fuel/open/
+// available filters and an optional "nearest first" sort once the visitor shares their location.
+import { formatMoney, openBadge, crowdBadge } from "@fuelos/core";
+import { AlertBanner, Button, StatusBadge, cx } from "@fuelos/ui";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AdBanner } from "@/components/AdBanner";
@@ -14,19 +13,27 @@ import { FuelChips } from "@/components/FuelChips";
 import { Icon } from "@/components/Icon";
 import { StationCard, type StationPriceRow } from "@/components/StationCard";
 import { customerAccess, type CustomerAccess } from "@/lib/customer-access";
-import { loadPrices, type PricesData } from "@/lib/prices-data";
-import { availabilityBadge, mapUrl } from "@/lib/prices-rules";
+import { availabilityBadge, currencyLabel, mapUrl } from "@/lib/prices-rules";
+import { distanceKm, formatDistance } from "@/lib/distance";
+import { filterStations, fuelNames, sortStations, type DirectoryStation } from "@/lib/stations-rules";
+import { loadStations, type StationsData } from "@/lib/stations-data";
 import { supabase } from "@/lib/supabase";
 import { timeAgo } from "@/lib/time-ago";
+import { useHere } from "@/lib/use-here";
 
-type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: PricesData };
+type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: StationsData };
+
+const ALL_FUEL = "الكل";
 
 export default function HomePage() {
   const [access, setAccess] = useState<CustomerAccess>();
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [tick, setTick] = useState(0);
-  const [filter, setFilter] = useState("الكل");
+  const [fuel, setFuel] = useState(ALL_FUEL);
+  const [openOnly, setOpenOnly] = useState(false);
+  const [availableOnly, setAvailableOnly] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const { here, state: hereState, ask: askHere } = useHere();
 
   useEffect(() => {
     customerAccess().then(setAccess, () => setAccess({ kind: "error" }));
@@ -34,7 +41,7 @@ export default function HomePage() {
 
   useEffect(() => {
     let alive = true;
-    loadPrices().then(
+    loadStations().then(
       (data) => { if (alive) { setLoad({ status: "ready", data }); setNow(Date.now()); } },
       () => { if (alive) setLoad({ status: "error" }); },
     );
@@ -47,9 +54,12 @@ export default function HomePage() {
   }
 
   const stations = load.status === "ready" ? load.data.stations : [];
-  const products = ["الكل", ...new Set(stations.flatMap((s) => s.products.map((p) => p.name)))];
-  const shown = filter === "الكل" ? stations : stations.map((s) => ({ ...s, products: s.products.filter((p) => p.name === filter) })).filter((s) => s.products.length > 0);
+  const products = fuelNames(stations);
+  const filtered = filterStations(stations, { fuel: fuel === ALL_FUEL ? null : fuel, openOnly, availableOnly });
+  const shown = sortStations(filtered, hereState === "ok" ? here : null);
   const signedIn = access?.kind === "customer";
+  const city = stations[0]?.city ?? null;
+  const filtersActive = fuel !== ALL_FUEL || openOnly || availableOnly;
 
   return (
     <div className={`mx-auto flex max-w-[480px] flex-col gap-6 p-4 ${signedIn ? "pb-24" : "pb-10"}`}>
@@ -72,51 +82,120 @@ export default function HomePage() {
         )}
       </header>
 
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 text-body-regular-14 text-text-secondary">{city}</div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link href="/map" className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-body-strong-14 text-brand-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
+            <Icon name="pin" size={16} />
+            الخريطة
+          </Link>
+          <Button variant="secondary" className="min-h-11" onClick={askHere} disabled={hereState === "asking"} aria-busy={hereState === "asking"}>
+            <Icon name="pin" size={16} />
+            الأقرب إليّ
+          </Button>
+        </div>
+      </div>
+
       <AdBanner />
 
-      <FuelChips items={products} value={filter} onChange={setFilter} label="الوقود" />
+      <div className="flex flex-col gap-2">
+        <FuelChips items={[ALL_FUEL, ...products]} value={fuel} onChange={setFuel} label="الوقود" />
+        <div role="group" aria-label="فلاتر إضافية" className="flex flex-wrap gap-2">
+          <ToggleChip label="مفتوحة الآن" pressed={openOnly} onToggle={() => setOpenOnly((v) => !v)} />
+          <ToggleChip label="المتوفر فقط" pressed={availableOnly} onToggle={() => setAvailableOnly((v) => !v)} />
+        </div>
+      </div>
+
+      {hereState === "denied" && (
+        <AlertBanner tone="info" title="فعّل الموقع لترتيب المحطات حسب قربها منك" />
+      )}
 
       {load.status === "loading" && <Skeleton />}
       {load.status === "error" && (
-        <AlertBanner tone="danger" title="تعذّر تحميل الأسعار" action={<RetryButton onClick={refresh} />}>
+        <AlertBanner tone="danger" title="تعذّر تحميل المحطات" action={<RetryButton onClick={refresh} />}>
           تحقق من الاتصال بالإنترنت ثم حاول مرة أخرى.
         </AlertBanner>
       )}
       {load.status === "ready" && shown.length === 0 && (
-        <p className="rounded-[18px] border border-border-default bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">لا توجد محطات نشطة بعرض هذا الوقود حالياً.</p>
+        <p className="rounded-[18px] border border-border-default bg-surface-card p-6 text-center text-body-regular-14 text-text-secondary shadow-card">
+          {filtersActive ? "لا محطات تطابق الفلاتر — جرّب إزالة أحدها" : "لا توجد محطات نشطة حالياً."}
+        </p>
       )}
 
       <ul className="flex flex-col gap-3">
-        {shown.map((s) => {
-          const first = s.products[0];
-          const prices: StationPriceRow[] = s.products.map((p) => {
-            const badge = p.availability ? availabilityBadge(p.availability) : undefined;
-            return {
-              id: p.productId,
-              fuel: p.name,
-              price: p.price !== null ? formatMoney(String(p.price), s.currency) : null,
-              badge: badge ? <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge> : undefined,
-            };
-          });
-          return (
-            <li key={s.stationId}>
-              <StationCard
-                name={s.name}
-                href={`/station/${s.stationId}`}
-                city={s.city ?? undefined}
-                mapHref={mapUrl(s.lat, s.lng) ?? undefined}
-                prices={prices}
-                updated={first?.updatedAt
-                  ? `آخر تحديث ${timeAgo(first.updatedAt, now)} · ${first.source === "manual" ? "من إدارة المحطة" : "محسوب تلقائياً"}`
-                  : undefined}
-              />
-            </li>
-          );
-        })}
+        {shown.map((s) => (
+          <li key={s.stationId}>
+            <StationCard {...stationCardProps(s, hereState === "ok" ? here : null, now)} />
+          </li>
+        ))}
       </ul>
 
       {signedIn && <BottomNav />}
     </div>
+  );
+}
+
+function stationCardProps(s: DirectoryStation, here: { lat: number; lng: number } | null, now: number) {
+  const prices: StationPriceRow[] = s.products.map((p) => {
+    const badge = p.availability ? availabilityBadge(p.availability) : undefined;
+    return {
+      id: p.productId,
+      fuel: p.name,
+      price: p.price !== null ? formatMoney(p.price, currencyLabel("SYP")) : null,
+      badge: badge ? <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge> : undefined,
+    };
+  });
+
+  const open = openBadge(s.isOpen);
+  const crowd = s.crowd !== null ? crowdBadge(s.crowd) : null;
+  const badges = (
+    <span className="flex items-center gap-1.5">
+      <StatusBadge tone={open.tone}>{open.label}</StatusBadge>
+      {crowd && <StatusBadge tone={crowd.tone}>{crowd.label}</StatusBadge>}
+    </span>
+  );
+
+  const distance = here !== null && s.lat !== null && s.lng !== null
+    ? formatDistance(distanceKm(here, { lat: s.lat, lng: s.lng }))
+    : undefined;
+
+  const timestamps = [
+    s.openSetAt, s.crowdSetAt,
+    ...s.products.flatMap((p) => [p.priceUpdatedAt, p.availabilityUpdatedAt]),
+  ].filter((t): t is string => t !== null);
+  const newest = timestamps.length > 0
+    ? timestamps.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a))
+    : null;
+
+  return {
+    name: s.name,
+    href: `/station/${s.stationId}`,
+    city: s.city ?? undefined,
+    mapHref: mapUrl(s.lat, s.lng) ?? undefined,
+    badges,
+    distance,
+    prices,
+    updated: newest ? `آخر تحديث ${timeAgo(newest, now)} · من إدارة المحطة` : undefined,
+  };
+}
+
+function ToggleChip({ label, pressed, onToggle }: { label: string; pressed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onToggle}
+      className={cx(
+        "relative h-[34px] rounded-full border px-4 text-body-strong-14 transition-colors motion-reduce:transition-none",
+        "before:absolute before:inset-x-0 before:-inset-y-[5px] before:content-['']",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary",
+        pressed
+          ? "border-brand-primary bg-brand-primary text-text-on-dark"
+          : "border-border-default bg-surface-card text-text-secondary",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
