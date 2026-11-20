@@ -62,7 +62,6 @@ export function PromosTab({ stationId, canManage }: Props) {
 
   async function endPromo() {
     setBusy(true); setMsg(undefined);
-    // idempotent — no error if already ended, just refresh (Review Focus #5)
     await supabase().rpc("end_station_promo", { p_station: stationId });
     setBusy(false);
     await fetchOffer();
@@ -84,7 +83,7 @@ export function PromosTab({ stationId, canManage }: Props) {
       {offer !== undefined && offer !== null && (
         <div className="flex flex-col gap-3 rounded-lg border border-border-muted bg-surface-muted p-4">
           <p className="text-heading-h3-16 text-text-primary">{offer.title}</p>
-          <p className="text-body-14 text-text-secondary">{offer.description}</p>
+          <p className="text-body-regular-14 text-text-secondary">{offer.description}</p>
           {offer.endsAt && (
             <p className="text-body-small-12 text-text-tertiary">ينتهي في {formatEndsAt(offer.endsAt)}</p>
           )}

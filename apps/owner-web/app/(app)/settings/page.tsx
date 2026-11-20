@@ -283,7 +283,7 @@ function NotificationsTab({ canManage }: { canManage: boolean }) {
 
       {canManage && status === "enabled" && (
         <div className="flex flex-col gap-3">
-          <p className="text-body-14 text-status-success">
+          <p className="text-body-regular-14 text-status-success">
             ✓ مفعّلة{stationCount > 0 ? ` لـ${stationCount} محطة` : ""}
           </p>
           <Button variant="secondary" disabled={busy} onClick={disable}>
