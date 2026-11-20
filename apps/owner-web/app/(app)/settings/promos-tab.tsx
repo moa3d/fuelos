@@ -29,7 +29,7 @@ export function PromosTab({ stationId, canManage }: Props) {
   const [endsAt, setEndsAt] = useState("");
 
   async function fetchOffer() {
-    const { data, error } = await supabase().rpc("station_live_row", { p_station: stationId });
+    const { data, error } = await supabase().rpc("station_active_promo", { p_station: stationId });
     if (error) { setMsg(error.message); return; }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const d = data as any;
@@ -37,7 +37,7 @@ export function PromosTab({ stationId, canManage }: Props) {
   }
 
   useEffect(() => {
-    supabase().rpc("station_live_row", { p_station: stationId }).then(({ data, error }) => {
+    supabase().rpc("station_active_promo", { p_station: stationId }).then(({ data, error }) => {
       if (error) { setMsg(error.message); return; }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data as any;
